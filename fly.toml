@@ -1,3 +1,8 @@
+# fly.toml app configuration file
+
+app = "telegram-bot-delicate-dream-3318"
+primary_region = "fra"
+
 [build]
   image = "python:3.12-slim"
 
@@ -8,13 +13,14 @@
   protocol = "tcp"
   internal_port = 8080
 
-[[services.ports]]
-  port = 80
-  handlers = ["http"]
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
 
-[[services.ports]]
-  port = 443
-  handlers = ["tls", "http"]
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
 
-[deploy]
-  command = "python main.py"
+[vm]
+  memory = "1gb"
+  cpu_kind = "shared"
