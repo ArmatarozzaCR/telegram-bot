@@ -1,8 +1,12 @@
+import os
 from flask import Flask, request
 from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 import asyncio
 import re
+
+# --- CONFIGURAZIONE FLASK ---
+os.environ["FLASK_APP"] = "main.py"
 
 # --- CONFIGURAZIONE TOKEN ---
 TOKEN = "8193058864:AAFbZmo4wVFvUcXOoVETYGngX4ExjNSMk0I"
@@ -82,4 +86,4 @@ if __name__ == "__main__":
     print("🚀 Avvio server Flask su porta 8080")
 
     # 6️⃣ Avvia server Flask
-    app_web.run(host="0.0.0.0", port=8080, threaded=True)  # 👈 molto importante: threaded=True
+    app_web.run(host="0.0.0.0", port=8080, threaded=True)
