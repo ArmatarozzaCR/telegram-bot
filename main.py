@@ -1,15 +1,12 @@
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, ApplicationBuilder, MessageHandler, ContextTypes, filters
 import asyncio
 import re
 import telegram
 
 # --- CONFIGURAZIONE TOKEN ---
 TOKEN = "8193058864:AAFbZmo4wVFvUcXOoVETYGngX4ExjNSMk0I"
-
-# --- BOT APP ---
-app_bot = ApplicationBuilder().token(TOKEN).build()
 
 # --- VARIABILE GLOBALE ---
 utenti_in_attesa = {}
@@ -50,12 +47,17 @@ async def ricevi_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text="❗ Per favore, includi il tag del giocatore che inizia con # nel testo."
         )
 
-# --- REGISTRO HANDLERS ---
-app_bot.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
-app_bot.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), ricevi_tag))
-
 # --- FLASK WEB SERVER ---
 app_web = Flask(__name__)
+
+# --- TELEGRAM BOT APPLICATION ---
+async def create_app():
+    application = ApplicationBuilder().token(TOKEN).build()
+
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), ricevi_tag))
+
+    return application
 
 @app_web.route("/", methods=["GET"])
 def home():
@@ -63,12 +65,14 @@ def home():
 
 @app_web.route(f"/{TOKEN}", methods=["POST"])
 async def webhook():
-    update = Update.de_json(request.get_json(force=True), app_bot.bot)
+    update = Update.de_json(request.get_json(force=True), telegram.Bot(token=TOKEN))
     await app_bot.process_update(update)
     return "OK"
 
 # --- STARTUP ---
 if __name__ == "__main__":
+    app_bot = asyncio.run(create_app())
+
     bot = telegram.Bot(token=TOKEN)
     WEBHOOK_URL = f"https://telegram-bot-delicate-dream-3318.fly.dev/{TOKEN}"
 
@@ -76,5 +80,7 @@ if __name__ == "__main__":
     asyncio.run(bot.delete_webhook())
     asyncio.run(bot.set_webhook(url=WEBHOOK_URL))
 
-    # Avvia il server Flask su porta 8080 (necessario per Fly.io)
+    print("✅ Webhook impostato:", WEBHOOK_URL)
+    print("🚀 Avvio server Flask su porta 8080")
+
     app_web.run(host="0.0.0.0", port=8080)
