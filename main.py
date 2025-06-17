@@ -82,4 +82,4 @@ if __name__ == "__main__":
     print("🚀 Avvio server Flask su porta 8080")
 
     # 6️⃣ Avvia server Flask
-    app_web.run(host="0.0.0.0", port=8080)
+    app_web.run(host="0.0.0.0", port=8080, threaded=True)  # 👈 molto importante: threaded=True
