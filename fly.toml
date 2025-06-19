@@ -1,21 +1,18 @@
-app = 'telegram-bot-delicate-dream-3318'
-primary_region = 'fra'
+app = "telegram-bot-delicate-dream-3318"
+primary_region = "fra"
+
+[experimental]
+  auto_rollback = true
 
 [env]
-  PORT = '8080'
 
-[[services]]
-  protocol = 'tcp'
+[http_service]
   internal_port = 8080
-
-  [[services.ports]]
-    port = 80
-    handlers = ['http']
-
-  [[services.ports]]
-    port = 443
-    handlers = ['tls', 'http']
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
 
 [vm]
-  memory = '1gb'
-  cpu_kind = 'shared'
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
