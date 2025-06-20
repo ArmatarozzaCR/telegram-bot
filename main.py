@@ -2,7 +2,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 import re
 
-TOKEN = "8193058864:AAFbZmo4wVFvUcXOoVETYGngX4ExjNSMk0I"
+import os
+TOKEN = os.getenv("TOKEN")
 
 utenti_in_attesa = {}
 
