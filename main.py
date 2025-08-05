@@ -10,6 +10,7 @@ import os
 import re
 
 TOKEN = os.getenv("TOKEN")
+
 utenti_in_attesa = {}
 codice_to_paese = {
     "it": "Italia",
@@ -29,9 +30,16 @@ codice_to_paese = {
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
-        utenti_in_attesa[user_id] = {"group_id": update.effective_chat.id, "nome": member.full_name, "username": member.username}
+        utenti_in_attesa[user_id] = {
+            "group_id": update.effective_chat.id,
+            "nome": member.full_name,
+            "username": member.username
+        }
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Inizia il tuo reclutamento / Start your recruitment", url=f"https://t.me/{context.bot.username}?start=join")]
+            [InlineKeyboardButton(
+                "Inizia il tuo reclutamento / Start your recruitment",
+                url=f"https://t.me/{context.bot.username}?start=join"
+            )]
         ])
         messaggio = f"""👋 Benvenuto/a {member.full_name} (@{member.username or 'nessun username'})!
 
@@ -79,10 +87,11 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text("Non risulti tra i nuovi utenti. Unisciti al gruppo prima di iniziare il reclutamento.")
 
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
 
-print("✅ Bot in esecuzione con polling...")
-app.run_polling()
+    print("✅ Bot in esecuzione con polling...")
+    app.run_polling()
