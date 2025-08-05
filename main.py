@@ -28,25 +28,14 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         nome = member.full_name
         username = f"@{member.username}" if member.username else "nessun username"
-        lingua = member.language_code or "sconosciuta"
-        paese = codice_to_paese.get(lingua, "non identificato")
 
-        if lingua == "it":
-            messaggio = f"""👋 Benvenuto/a {nome} ({username})!
+        messaggio = f"""👋 Benvenuto/a {nome} ({username})!
 
-🌍 Lingua del tuo Telegram: **{lingua.upper()}**
-📍 Provenienza stimata: **{paese}**
+🇮🇹 envenuto/a nel gruppo telegram di passaggio per far parte della nostra grande Family. Aiutaci a scalare le classifiche italiane e mondiali a suon di guerre tra clan💪😉   
+Per favore, scrivi qua sotto il tuo nome in game e il tuo tag player, in modo da permetterci di dare un'occhiata al tuo account.
 
-🇮🇹 Questo è il gruppo di passaggio per far parte della nostra grande Family. Aiutaci a scalare le classifiche italiane e mondiali a suon di guerre tra clan 💪😉  
-Per favore, scrivi qua sotto il tuo nome in game e il tuo tag player in modo da permetterci di dare un'occhiata al tuo account."""
-        else:
-            messaggio = f"""👋 Welcome {nome} ({username})!
-
-🌍 Telegram language: **{lingua.upper()}**
-📍 Estimated location: **{paese}**
-
-🇬🇧 Welcome to the "check-in" telegram group of our great Family. Help us climb the Italian and world rankings with clan wars 💪😉  
-Please write your in-game name and player tag below, so we can take a look at your account."""
+🇬🇧 Welcome to the "check-in" telegram group of our great Family. Help us climb the Italian and world rankings with clan wars💪😉 
+Please, write your in-game name and your player tag, so that we can take a look at your account."""
 
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -54,24 +43,44 @@ Please write your in-game name and player tag below, so we can take a look at yo
         )
 
 async def ricevi_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_id = user.id
     text = update.message.text
+    chat_id = update.effective_chat.id
 
-    match = re.search(r"#([A-Z0-9]+)", text.upper())
-    if match and user_id in utenti_in_attesa:
-        tag = match.group(1)
-        url = f"https://royaleapi.com/player/{tag}"
+    if user_id in utenti_in_attesa:
+        lingua = user.language_code or "sconosciuta"
+        paese = codice_to_paese.get(lingua, "non identificato")
 
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"🔗 Ecco il profilo del giocatore: {url}"
-        )
+        messaggio_provenienza = f"""🌍 Lingua del tuo Telegram: *{lingua.upper()}*
+📍 Provenienza stimata: *{paese}*"""
+
+        await context.bot.send_message(chat_id=chat_id, text=messaggio_provenienza)
+
+        match = re.search(r"#([A-Z0-9]+)", text.upper())
+        if match:
+            tag = match.group(1)
+            url = f"https://royaleapi.com/player/{tag}"
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔗 Ecco il profilo del giocatore: {url}"
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="❗ Per favore, includi il tag in game che inizia con # nel prossimo messaggio."
+            )
+
         del utenti_in_attesa[user_id]
-    elif match is None and user_id in utenti_in_attesa:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="❗ Per favore, includi il tag del giocatore che inizia con # nel testo."
-        )
+    else:
+        match = re.search(r"#([A-Z0-9]+)", text.upper())
+        if match:
+            tag = match.group(1)
+            url = f"https://royaleapi.com/player/{tag}"
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔗 Ecco il profilo del giocatore: {url}"
+            )
 
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
