@@ -1,54 +1,103 @@
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+import os
 import re
 
-import os
 TOKEN = os.getenv("TOKEN")
-
 utenti_in_attesa = {}
 
+codice_to_paese = {
+    "it": "Italia",
+    "en": "Paesi anglofoni",
+    "fr": "Francia",
+    "de": "Germania",
+    "es": "Spagna / Sud America",
+    "pt": "Portogallo / Brasile",
+    "ru": "Russia",
+    "ar": "Paesi arabi",
+    "tr": "Turchia",
+    "zh": "Cina",
+    "ja": "Giappone",
+    "ko": "Corea del Sud"
+}
+
+# Quando entra un nuovo utente nel gruppo
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
-        utenti_in_attesa[user_id] = update.effective_chat.id
+        utenti_in_attesa[user_id] = {
+            "group_id": update.effective_chat.id,
+            "nome": member.full_name,
+            "username": member.username
+        }
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                "Inizia il tuo reclutamento / Start your recruitment",
+                url=f"https://t.me/{context.bot.username}?start=join"
+            )]
+        ])
+        messaggio = f"""👋 Benvenuto/a {member.full_name} (@{member.username or 'nessun username'})!
 
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="""🇮🇹 Benvenuto/a nel gruppo telegram di passaggio per far parte della nostra grande Family. Aiutaci a scalare le classifiche italiane e mondiali a suon di guerre tra clan💪😉   
-Per favore, scrivi qua sotto il tuo nome in game e il tuo tag player, in modo da permetterci di dare un'occhiata al tuo account.
+🇮🇹 Questo è il gruppo di reclutamento della nostra grande Family!
 
-🇬🇧 Welcome to the "check-in" telegram group of our great Family. Help us climb the Italian and world rankings with clan wars💪😉 
-Please, write your in-game name and your player tag, so that we can take a look at your account."""
-        )
+⬇ Clicca sul pulsante qui sotto per iniziare il tuo reclutamento.
 
-async def ricevi_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
+—
+
+🇬🇧 This is the recruitment group of our great Family!
+
+⬇ Click the button below to start your recruitment."""
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=messaggio, reply_markup=keyboard)
+
+# Comando /start in privato
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if context.args and context.args[0] == "join" and user_id in utenti_in_attesa:
+        await update.message.reply_text("Per favore, scrivi il tuo tag giocatore (es: #ABC123).")
+    else:
+        await update.message.reply_text("Benvenuto! Unisciti al gruppo prima di iniziare il reclutamento.")
+
+# Ricezione del tag giocatore in privato
+async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    match = re.search(r"#([A-Z0-9]+)", text.upper())
-    if match and user_id in utenti_in_attesa:
-        tag = match.group(1)
-        url = f"https://royaleapi.com/player/{tag}"
+    if user_id in utenti_in_attesa:
+        match = re.search(r"#([A-Z0-9]+)", text.upper())
+        if match:
+            tag = match.group(1)
+            user_lang = update.effective_user.language_code or "sconosciuta"
+            paese = codice_to_paese.get(user_lang, "non identificato")
+            group_id = utenti_in_attesa[user_id]["group_id"]
+            nome = utenti_in_attesa[user_id]["nome"]
+            username = utenti_in_attesa[user_id]["username"]
+            link = f"https://royaleapi.com/player/{tag}"
 
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"🔗 Ecco il profilo del giocatore: {url}"
-        )
-        del utenti_in_attesa[user_id]
-    elif match is None and user_id in utenti_in_attesa:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="❗ Per favore, mandaci il tag del giocatore che inizia con # nel testo nel prossimo messaggio."
-        )
+            messaggio = f"""👤 {nome} (@{username or 'nessun username'})
 
-# Costruisci il bot
+🌍 Lingua Telegram: {user_lang.upper()}
+📍 Provenienza stimata: {paese}
+
+🔗 Profilo giocatore: {link}"""
+
+            await context.bot.send_message(chat_id=group_id, text=messaggio)
+            del utenti_in_attesa[user_id]
+        else:
+            await update.message.reply_text("❗ Per favore, manda il tag in game che inizia con #.")
+    else:
+        await update.message.reply_text("Non risulti tra i nuovi utenti. Unisciti al gruppo prima di iniziare il reclutamento.")
+
+# Setup dell'app
 app = ApplicationBuilder().token(TOKEN).build()
-
-# Registra gli handlers
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
-app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), ricevi_tag))
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
 
 print("✅ Bot in esecuzione con polling...")
-
-# Avvia polling
 app.run_polling()
