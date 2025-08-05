@@ -1,11 +1,16 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    ContextTypes,
+    filters,
+)
 import os
 import re
 
 TOKEN = os.getenv("TOKEN")
 utenti_in_attesa = {}
-
 codice_to_paese = {
     "it": "Italia",
     "en": "Paesi anglofoni",
@@ -24,17 +29,10 @@ codice_to_paese = {
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
-        utenti_in_attesa[user_id] = {
-            "group_id": update.effective_chat.id,
-            "nome": member.full_name,
-            "username": member.username
-        }
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(
-                "Inizia il tuo reclutamento / Start your recruitment",
-                url=f"https://t.me/{context.bot.username}?start=join"
-            )
-        ]])
+        utenti_in_attesa[user_id] = {"group_id": update.effective_chat.id, "nome": member.full_name, "username": member.username}
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("clicca qua / click here", url=f"https://t.me/{context.bot.username}?start=join")]
+        ])
         messaggio = f"""👋 Benvenuto/a {member.full_name} (@{member.username or 'nessun username'})!
 
 🇮🇹 Questo è il gruppo di reclutamento della nostra grande Family!
@@ -46,22 +44,14 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🇬🇧 This is the recruitment group of our great Family!
 
 ⬇ Click the button below to start your recruitment."""
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=messaggio,
-            reply_markup=keyboard
-        )
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=messaggio, reply_markup=keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if context.args and context.args[0] == "join" and user_id in utenti_in_attesa:
-        await update.message.reply_text(
-            "Per favore, scrivi il tuo tag giocatore (es: #ABC123)."
-        )
+        await update.message.reply_text("Per favore, scrivi il tuo tag giocatore (es: #ABC123).\n\nPlease write your player tag (e.g. #ABC123).")
     else:
-        await update.message.reply_text(
-            "Benvenuto! Usa il gruppo per unirti e inizia il reclutamento."
-        )
+        await update.message.reply_text("Benvenuto! Usa il gruppo per unirti e inizia il reclutamento.\n\nWelcome! Use the group to join and start recruitment.")
 
 async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -85,19 +75,14 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await context.bot.send_message(chat_id=group_id, text=messaggio)
             del utenti_in_attesa[user_id]
         else:
-            await update.message.reply_text(
-                "❗ Per favore, includi il tag del giocatore che inizia con #."
-            )
+            await update.message.reply_text("❗ Benvenuto, mandami il tuo tag in game che inizia con # e prosegui il reclutamento nel gruppo.\n\n Welcome, send me your in-game tag starting with # and continue the recruitment process in the group.")
     else:
-        await update.message.reply_text(
-            "Non risulti tra i nuovi utenti. Unisciti al gruppo prima di iniziare il reclutamento."
-        )
+        await update.message.reply_text("Non risulti tra i nuovi utenti. Unisciti al gruppo prima di iniziare il reclutamento.")
 
 app = ApplicationBuilder().token(TOKEN).build()
-
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
 app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE & (~filters.COMMAND), ricevi_tag_privato))
+app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
 
 print("✅ Bot in esecuzione con polling...")
 app.run_polling()
