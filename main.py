@@ -68,8 +68,8 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
             link = f"https://royaleapi.com/player/{tag}"
             messaggio = f"""👤 {nome} (@{username or 'nessun username'})
 
-🌍 Lingua Telegram: {user_lang.upper()}
-📍 Provenienza stimata: {paese}
+🌍 Lingua: {user_lang.upper()}
+📍 Provenienza: {paese}
 
 🔗 Profilo giocatore: {link}"""
             await context.bot.send_message(chat_id=group_id, text=messaggio)
