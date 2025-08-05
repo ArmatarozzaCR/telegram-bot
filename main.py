@@ -51,7 +51,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0] == "join" and user_id in utenti_in_attesa:
         await update.message.reply_text("Benvenuto, mandami il tuo tag in game che inizia con # e prosegui il reclutamento nel gruppo.\n\n Welcome, send me your in-game tag starting with # and continue the recruitment process in the group.")
     else:
-        await update.message.reply_text("Benvenuto! Usa il gruppo per unirti e inizia il reclutamento.\n\nWelcome! Use the group to join and start recruitment.")
+        await update.message.reply_text("Benvenuto! Usa il gruppo @reclutarozzi per unirti e inizia il reclutamento.\n\nWelcome! Use the group @reclutarozzi to join and start recruitment.")
 
 async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
