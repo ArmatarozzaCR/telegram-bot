@@ -51,7 +51,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0] == "join" and user_id in utenti_in_attesa:
         await update.message.reply_text("Benvenuto, mandami il tuo tag in game che inizia con # e prosegui il reclutamento nel gruppo.\n\n Welcome, send me your in-game tag starting with # and continue the recruitment process in the group.")
     else:
-        await update.message.reply_text("Benvenuto! Usa il gruppo @reclutarozzi per unirti e inizia il reclutamento.\n\nWelcome! Use the group @reclutarozzi to join and start recruitment.")
+        await update.message.reply_text("Benvenuto! Usa il gruppo @reclutarozzi per unirti e iniziare il reclutamento.\n\nWelcome! Use the group @reclutarozzi to join and start recruitment.")
 
 async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -75,9 +75,9 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await context.bot.send_message(chat_id=group_id, text=messaggio)
             del utenti_in_attesa[user_id]
         else:
-            await update.message.reply_text("❗Per favore, scrivi il tuo tag giocatore (es: #ABC123).\n\nPlease write your player tag (like #ABC123). ")
+            await update.message.reply_text("❗Per favore, scrivimi il tuo tag giocatore (es: #ABC123).\n\nPlease write me your player tag (like #ABC123). ")
     else:
-        await update.message.reply_text("Non risulti tra i nuovi utenti. Unisciti al gruppo prima di iniziare il reclutamento.")
+        await update.message.reply_text("Continua il reclutamento nel gruppo @reclutarozzi, dopo un attenta valutazione del profilo ti diremo in quale clan verrai ammesso.")
 
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
