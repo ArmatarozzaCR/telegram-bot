@@ -28,6 +28,8 @@ codice_to_paese = {
 reclutamento_group_id = -1002544640127
 benvenuto_group_id = -1001834238708
 benvenuto_topic_id = 60864
+gestione_group_id = -1002020527955
+gestione_topic_id = 76313
 dati_giocatori = {}
 
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -79,7 +81,42 @@ async def invia_resoconto(user_id, context):
     msg = await context.bot.send_message(chat_id=group_id, text=messaggio)
     dati["last_message_id"] = msg.message_id
     if not username:
-        await context.bot.send_message(chat_id=group_id, text=f"❗ @{nome}, inserisci un username Telegram per facilitare il tuo reclutamento", reply_to_message_id=msg.message_id)
+        if paese == "Italia":
+            avviso = f"⚠️ {nome}, inserisci un username Telegram per facilitare il tuo reclutamento."
+        else:
+            avviso = f"⚠️ {nome}, please set a Telegram username to make your recruitment easier."
+        await context.bot.send_message(chat_id=group_id, text=avviso, reply_to_message_id=msg.message_id)
+
+async def invia_resoconto_gestione(user_id, context):
+    if user_id not in dati_giocatori:
+        return
+    dati = dati_giocatori[user_id]
+    nome = dati["nome"]
+    username = dati["username"]
+    username_display = f"@{username}" if username else "nessun username"
+    tag = dati["tag"]
+    user_lang = dati.get("user_lang", "sconosciuta")
+    paese = codice_to_paese.get(user_lang, "non identificato")
+    nel_benvenuto = dati.get("nel_benvenuto", False)
+    link = f"https://royaleapi.com/player/{tag}"
+    messaggio = f"""👤 {nome} ({username_display})
+
+🌍 Lingua: {user_lang.upper()}
+📍 Provenienza: {paese}
+🔗 Profilo giocatore: {link}
+📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}"""
+    old_msg_id = dati.get("gestione_message_id")
+    if old_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=gestione_group_id, message_id=old_msg_id)
+        except:
+            pass
+    msg = await context.bot.send_message(
+        chat_id=gestione_group_id,
+        text=messaggio,
+        message_thread_id=gestione_topic_id
+    )
+    dati["gestione_message_id"] = msg.message_id
 
 async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -96,12 +133,15 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "username": username,
                 "tag": tag,
                 "user_lang": user_lang,
-                "last_message_id": None
+                "last_message_id": None,
+                "gestione_message_id": None,
+                "nel_benvenuto": False
             }
             await invia_resoconto(user_id, context)
+            await invia_resoconto_gestione(user_id, context)
             del utenti_in_attesa[user_id]
         else:
-            await update.message.reply_text("❗Per favore, scrivimi il tuo tag giocatore (es: #ABC123).\n\nPlease write me your player tag (like #ABC123). ")
+            await update.message.reply_text("❗Per favore, scrivimi il tuo tag in game (es: #VPJJPQCPG).\n\nPlease write me your player tag (like #VPJJPQCPG). ")
     else:
         await update.message.reply_text("Continua il reclutamento nel gruppo @reclutarozzi, dopo un attenta valutazione del profilo ti diremo in quale clan verrai ammesso.")
 
@@ -121,22 +161,29 @@ async def monitora_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     pass
             await invia_resoconto(user.id, context)
+            await invia_resoconto_gestione(user.id, context)
 
 async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
         if user_id in dati_giocatori:
             dati = dati_giocatori[user_id]
+            dati["nel_benvenuto"] = True
+            await invia_resoconto_gestione(user_id, context)
             nome = dati["nome"]
             username = dati["username"]
             username_display = f"@{username}" if username else "nessun username"
             tag = dati["tag"]
             link = f"https://royaleapi.com/player/{tag}"
-            messaggio = f"👋 Benvenuto/a {nome} ({username_display})!\n\n🔗 Profilo giocatore: {link}"
+            if codice_to_paese.get(dati["user_lang"], "") == "Italia":
+                benv = f"👋 Benvenuto/a {nome} ({username_display})!\n\n🔗 Profilo giocatore: {link}"
+            else:
+                benv = f"👋 Welcome {nome} ({username_display})!\n\n🔗 Player profile: {link}"
+            messaggio = benv
             await context.bot.send_message(chat_id=benvenuto_group_id, text=messaggio, message_thread_id=benvenuto_topic_id)
         else:
             mention = f"[{member.full_name}](tg://user?id={user_id})"
-            messaggio = f"❗ Ciao {mention}, per favore unisciti prima al gruppo @reclutarozzi per completare il reclutamento."
+            messaggio = f"❗ Ciao {mention}, unisciti prima al gruppo @reclutarozzi per iniziare il tuo reclutamento."
             await context.bot.send_message(chat_id=benvenuto_group_id, text=messaggio, parse_mode="Markdown", message_thread_id=benvenuto_topic_id)
 
 app = ApplicationBuilder().token(TOKEN).build()
