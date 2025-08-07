@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -10,7 +10,10 @@ import os
 import re
 
 TOKEN = os.getenv("TOKEN")
+
 utenti_in_attesa = {}
+dati_giocatori = {}
+
 codice_to_paese = {
     "it": "Italia",
     "en": "Paesi anglofoni",
@@ -25,17 +28,34 @@ codice_to_paese = {
     "ja": "Giappone",
     "ko": "Corea del Sud"
 }
+
 reclutamento_group_id = -1002544640127
 benvenuto_group_id = -1001834238708
 benvenuto_topic_id = 60864
 gestione_group_id = -1002020527955
 gestione_topic_id = 76313
-dati_giocatori = {}
+
+# Permessi
+permessi_bloccati = ChatPermissions(can_send_messages=False)
+permessi_sbloccati = ChatPermissions(
+    can_send_messages=True,
+    can_send_other_messages=True,
+    can_add_web_page_previews=True
+)
 
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
         utenti_in_attesa[user_id] = {"group_id": update.effective_chat.id, "nome": member.full_name, "username": member.username}
+
+        # 🔒 Blocca i messaggi
+        await context.bot.restrict_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=user_id,
+            permissions=permessi_bloccati
+        )
+
+        # Messaggio con pulsante
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("clicca qua / click here", url=f"https://t.me/{context.bot.username}?start=join")]
         ])
@@ -139,6 +159,14 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
             }
             await invia_resoconto(user_id, context)
             await invia_resoconto_gestione(user_id, context)
+
+            # 🔓 Sblocca i messaggi nel gruppo
+            await context.bot.restrict_chat_member(
+                chat_id=reclutamento_group_id,
+                user_id=user_id,
+                permissions=permessi_sbloccati
+            )
+
             del utenti_in_attesa[user_id]
         else:
             await update.message.reply_text("❗Per favore, scrivimi il tuo tag in game (es: #VPJJPQCPG).\n\nPlease write me your player tag (like #VPJJPQCPG). ")
