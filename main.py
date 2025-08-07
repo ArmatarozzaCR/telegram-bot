@@ -36,6 +36,7 @@ benvenuto_topic_id = 60864
 gestione_group_id = -1002020527955
 gestione_topic_id = 76313
 
+# Permessi
 permessi_bloccati = ChatPermissions(can_send_messages=False)
 permessi_sbloccati = ChatPermissions(
     can_send_messages=True,
@@ -46,41 +47,21 @@ permessi_sbloccati = ChatPermissions(
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
-        group_id = update.effective_chat.id
-        nome = member.full_name
-        username = member.username
+        utenti_in_attesa[user_id] = {"group_id": update.effective_chat.id, "nome": member.full_name, "username": member.username}
 
-        utenti_in_attesa[user_id] = {
-            "group_id": group_id,
-            "nome": nome,
-            "username": username
-        }
-
+        # 🔒 Blocca i messaggi
         await context.bot.restrict_chat_member(
-            chat_id=group_id,
+            chat_id=update.effective_chat.id,
             user_id=user_id,
             permissions=permessi_bloccati
         )
 
-        if user_id in dati_giocatori:
-            dati = dati_giocatori[user_id]
-            vecchio_tag = dati.get("tag")
-            old_msg_id = dati.get("gestione_message_id")
-            if old_msg_id:
-                try:
-                    await context.bot.delete_message(chat_id=gestione_group_id, message_id=old_msg_id)
-                except:
-                    pass
-            dati["nome"] = nome
-            dati["username"] = username
-            dati["nel_benvenuto"] = False
-            dati["vecchio_tag"] = vecchio_tag
-
+        # Messaggio con pulsante
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("clicca qua / click here", url=f"https://t.me/{context.bot.username}?start=join")]
         ])
-        username_display = f"@{username}" if username else "nessun username"
-        messaggio = f"""👋 Benvenuto/a {nome} ({username_display})!
+        username_display = f"@{member.username}" if member.username else "nessun username"
+        messaggio = f"""👋 Benvenuto/a {member.full_name} ({username_display})!
 
 🇮🇹 Questo è il gruppo di reclutamento della nostra grande Family!
 
@@ -91,7 +72,7 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🇬🇧 This is the recruitment group of our great Family!
 
 ⬇️ Click the button below to start your recruitment."""
-        await context.bot.send_message(chat_id=group_id, text=messaggio, reply_markup=keyboard)
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=messaggio, reply_markup=keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -143,13 +124,8 @@ async def invia_resoconto_gestione(user_id, context):
 
 🌍 Lingua: {user_lang.upper()}
 📍 Provenienza: {paese}
-📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}
-🔗 Profilo giocatore: {link}"""
-    if dati.get("tag_modificato"):
-        vecchio_tag = dati.get("vecchio_tag")
-        if vecchio_tag and vecchio_tag != tag:
-            old_link = f"https://royaleapi.com/player/{vecchio_tag}"
-            messaggio += f"\n🔄 *Cambio tag rilevato:*\n🧾 Vecchio: {old_link}\n🆕 Nuovo: {link}"
+🔗 Profilo giocatore: {link}
+📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}"""
     old_msg_id = dati.get("gestione_message_id")
     if old_msg_id:
         try:
@@ -159,8 +135,7 @@ async def invia_resoconto_gestione(user_id, context):
     msg = await context.bot.send_message(
         chat_id=gestione_group_id,
         text=messaggio,
-        message_thread_id=gestione_topic_id,
-        parse_mode="Markdown"
+        message_thread_id=gestione_topic_id
     )
     dati["gestione_message_id"] = msg.message_id
 
@@ -174,34 +149,25 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
             user_lang = update.effective_user.language_code or "sconosciuta"
             nome = utenti_in_attesa[user_id]["nome"]
             username = utenti_in_attesa[user_id]["username"]
-            if user_id in dati_giocatori:
-                vecchio_tag = dati_giocatori[user_id].get("tag")
-                dati_giocatori[user_id]["vecchio_tag"] = vecchio_tag
-                if vecchio_tag and vecchio_tag != tag:
-                    dati_giocatori[user_id]["tag"] = tag
-                    dati_giocatori[user_id]["tag_modificato"] = True
-                else:
-                    dati_giocatori[user_id]["tag"] = tag
-                    dati_giocatori[user_id]["tag_modificato"] = False
-            else:
-                dati_giocatori[user_id] = {
-                    "nome": nome,
-                    "username": username,
-                    "tag": tag,
-                    "user_lang": user_lang,
-                    "last_message_id": None,
-                    "gestione_message_id": None,
-                    "nel_benvenuto": False,
-                    "vecchio_tag": None,
-                    "tag_modificato": False
-                }
+            dati_giocatori[user_id] = {
+                "nome": nome,
+                "username": username,
+                "tag": tag,
+                "user_lang": user_lang,
+                "last_message_id": None,
+                "gestione_message_id": None,
+                "nel_benvenuto": False
+            }
             await invia_resoconto(user_id, context)
             await invia_resoconto_gestione(user_id, context)
+
+            # 🔓 Sblocca i messaggi nel gruppo
             await context.bot.restrict_chat_member(
                 chat_id=reclutamento_group_id,
                 user_id=user_id,
                 permissions=permessi_sbloccati
             )
+
             del utenti_in_attesa[user_id]
         else:
             await update.message.reply_text("❗Per favore, scrivimi il tuo tag in game (es: #VPJJPQCPG).\n\nPlease write me your player tag (like #VPJJPQCPG). ")
@@ -242,15 +208,18 @@ async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT
                 benv = f"👋 Benvenuto/a {nome} ({username_display})!\n\n🔗 Profilo giocatore: {link}"
             else:
                 benv = f"👋 Welcome {nome} ({username_display})!\n\n🔗 Player profile: {link}"
-            await context.bot.send_message(chat_id=benvenuto_group_id, text=benv, message_thread_id=benvenuto_topic_id)
+            messaggio = benv
+            await context.bot.send_message(chat_id=benvenuto_group_id, text=messaggio, message_thread_id=benvenuto_topic_id)
         else:
             mention = f"[{member.full_name}](tg://user?id={user_id})"
             messaggio = f"❗ Ciao {mention}, unisciti prima al gruppo @reclutarozzi per iniziare il tuo reclutamento."
             await context.bot.send_message(chat_id=benvenuto_group_id, text=messaggio, parse_mode="Markdown", message_thread_id=benvenuto_topic_id)
 
 async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Controlla se chi invia è admin del gruppo reclutamento
     chat = update.effective_chat
     user = update.effective_user
+
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         if not (member.status in ['administrator', 'creator']):
@@ -259,31 +228,38 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except BadRequest:
         await update.message.reply_text("Errore nel verificare i permessi.")
         return
+
     if len(context.args) != 2:
         await update.message.reply_text("Uso corretto: /updatetag @username #TAG")
         return
+
     username_arg = context.args[0]
     tag_arg = context.args[1].upper()
+
     if username_arg.startswith("@"):
         username_arg = username_arg[1:]
+
     if not re.match(r"#?[A-Z0-9]+", tag_arg):
         await update.message.reply_text("Tag non valido. Deve iniziare con # e contenere lettere/numeri.")
         return
+
     tag_arg = tag_arg.lstrip("#")
+
     user_id = None
     for uid, dati in dati_giocatori.items():
         if dati.get("username", "").lower() == username_arg.lower():
             user_id = uid
             break
+
     if user_id is None:
         await update.message.reply_text(f"Utente @{username_arg} non trovato tra i giocatori registrati.")
         return
-    vecchio_tag = dati_giocatori[user_id].get("tag")
-    dati_giocatori[user_id]["vecchio_tag"] = vecchio_tag
+
     dati_giocatori[user_id]["tag"] = tag_arg
-    dati_giocatori[user_id]["tag_modificato"] = vecchio_tag != tag_arg
+
     await invia_resoconto(user_id, context)
     await invia_resoconto_gestione(user_id, context)
+
     await update.message.reply_text(f"Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
 
 app = ApplicationBuilder().token(TOKEN).build()
