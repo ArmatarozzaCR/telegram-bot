@@ -6,6 +6,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telegram.error import BadRequest
 import os
 import re
 
@@ -214,12 +215,60 @@ async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT
             messaggio = f"❗ Ciao {mention}, unisciti prima al gruppo @reclutarozzi per iniziare il tuo reclutamento."
             await context.bot.send_message(chat_id=benvenuto_group_id, text=messaggio, parse_mode="Markdown", message_thread_id=benvenuto_topic_id)
 
+async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Controlla se chi invia è admin del gruppo reclutamento
+    chat = update.effective_chat
+    user = update.effective_user
+
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if not (member.status in ['administrator', 'creator']):
+            await update.message.reply_text("❌ Solo admin possono usare questo comando.")
+            return
+    except BadRequest:
+        await update.message.reply_text("Errore nel verificare i permessi.")
+        return
+
+    if len(context.args) != 2:
+        await update.message.reply_text("Uso corretto: /updatetag @username #TAG")
+        return
+
+    username_arg = context.args[0]
+    tag_arg = context.args[1].upper()
+
+    if username_arg.startswith("@"):
+        username_arg = username_arg[1:]
+
+    if not re.match(r"#?[A-Z0-9]+", tag_arg):
+        await update.message.reply_text("Tag non valido. Deve iniziare con # e contenere lettere/numeri.")
+        return
+
+    tag_arg = tag_arg.lstrip("#")
+
+    user_id = None
+    for uid, dati in dati_giocatori.items():
+        if dati.get("username", "").lower() == username_arg.lower():
+            user_id = uid
+            break
+
+    if user_id is None:
+        await update.message.reply_text(f"Utente @{username_arg} non trovato tra i giocatori registrati.")
+        return
+
+    dati_giocatori[user_id]["tag"] = tag_arg
+
+    await invia_resoconto(user_id, context)
+    await invia_resoconto_gestione(user_id, context)
+
+    await update.message.reply_text(f"Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
+
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
 app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), monitora_username))
+app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
 
 print("✅ Bot in esecuzione con polling...")
 app.run_polling()
