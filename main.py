@@ -59,7 +59,6 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
         messaggio = f"""👋 Benvenuto/a {member.full_name} ({username_display})!
 
 🇮🇹 Questo è il gruppo di reclutamento della nostra grande Family!
-
 ⬇️ Clicca sul pulsante qui sotto per iniziare il tuo reclutamento.
 
 —
