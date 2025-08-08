@@ -1,3 +1,6 @@
+import os
+import re
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     ApplicationBuilder,
@@ -7,10 +10,10 @@ from telegram.ext import (
     filters,
 )
 from telegram.error import BadRequest
-import os
-import re
 
 TOKEN = os.getenv("TOKEN")
+
+ROYALE_API_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjRlYjNhNjM2LWEyZjEtNGU3Yi04YTljLWZmY2E0MmY1YzJlMSIsImlhdCI6MTc1NDY0ODUzNiwic3ViIjoiZGV2ZWxvcGVyL2QwYmI5YTRmLTIzYmQtYjRjNy0xZTc1LTU4ODMxODlhYTJhOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI2Ni4yNDEuMTI0LjE1NCJdLCJ0eXBlIjoiY2xpZW50In1dfQ.h86s8ANXmFBQ56XdGc1f-94wb1BkiFxlO141wXNKLOIT_fouoLN6JWAubg1FSDFn4ST9g--6e7cx7q9MsyAQ_A"
 
 utenti_in_attesa = {}
 dati_giocatori = {}
@@ -43,6 +46,7 @@ permessi_sbloccati = ChatPermissions(
     can_add_web_page_previews=True
 )
 
+
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
@@ -69,12 +73,14 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⬇️ Click the button below to start your recruitment."""
         await context.bot.send_message(chat_id=update.effective_chat.id, text=messaggio, reply_markup=keyboard)
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if context.args and context.args[0] == "join" and user_id in utenti_in_attesa:
         await update.message.reply_text("Benvenuto, mandami il tuo tag in game che inizia con # e prosegui il reclutamento nel gruppo.\n\n Welcome, send me your in-game tag starting with # and continue the recruitment process in the group.")
     else:
         await update.message.reply_text("Benvenuto! Usa il gruppo @reclutarozzi per unirti e iniziare il reclutamento.\n\nWelcome! Use the group @reclutarozzi to join and start recruitment.")
+
 
 async def invia_resoconto(user_id, context):
     dati = dati_giocatori.get(user_id)
@@ -109,30 +115,32 @@ async def invia_resoconto(user_id, context):
             avviso = f"⚠️ {nome}, please set a Telegram username to make your recruitment easier."
         await context.bot.send_message(chat_id=group_id, text=avviso, reply_to_message_id=msg.message_id)
 
-async def invia_resoconto_gestione(user_id, context):
-    dati = dati_giocatori.get(user_id)
-    if not dati:
-        return
-    nome = dati.get("nome", "Utente")
-    username = dati.get("username")
-    username_display = f"@{username}" if username else "nessun username"
-    tag = dati.get("tag", "sconosciuto")
-    user_lang = dati.get("user_lang", None)
-    nel_benvenuto = dati.get("nel_benvenuto", False)
-    if user_lang:
-        paese = codice_to_paese.get(user_lang, "non identificato")
-        lang_line = f"🌍 Lingua: {user_lang.upper()}"
-        paese_line = f"📍 Provenienza: {paese}"
-    else:
-        lang_line = ""
-        paese_line = ""
-    link = f"https://royaleapi.com/player/{tag}"
-    messaggio = f"""👤 {nome} ({username_display})
 
-{lang_line}
-{paese_line}
+async def invia_resoconto_gestione(user_id, context):
+    if user_id not in dati_giocatori:
+        return
+    dati = dati_giocatori[user_id]
+    nome = dati["nome"]
+    username = dati["username"]
+    username_display = f"@{username}" if username else "nessun username"
+    tag = dati["tag"]
+    paese = codice_to_paese.get(dati.get("user_lang", ""), "non identificato")
+    nel_benvenuto = dati.get("nel_benvenuto", False)
+    link = f"https://royaleapi.com/player/{tag}"
+
+    # Controlla se mostrare lingua e provenienza
+    if "user_lang" in dati and dati["user_lang"] != "sconosciuta":
+        messaggio = f"""👤 {nome} ({username_display})
+
+🌍 Lingua: {dati['user_lang'].upper()}
+📍 Provenienza: {paese}
 🔗 Profilo giocatore: {link}
 📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}"""
+    else:
+        messaggio = f"""👤 {nome} ({username_display})
+🔗 Profilo giocatore: {link}
+📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}"""
+
     old_msg_id = dati.get("gestione_message_id")
     if old_msg_id:
         try:
@@ -145,6 +153,7 @@ async def invia_resoconto_gestione(user_id, context):
         message_thread_id=gestione_topic_id
     )
     dati["gestione_message_id"] = msg.message_id
+
 
 async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -178,6 +187,7 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text("Continua il reclutamento nel gruppo @reclutarozzi, dopo un attenta valutazione del profilo ti diremo in quale clan verrai ammesso.")
 
+
 async def monitora_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != reclutamento_group_id:
         return
@@ -195,6 +205,7 @@ async def monitora_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
             await invia_resoconto(user.id, context)
             await invia_resoconto_gestione(user.id, context)
+
 
 async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
@@ -218,6 +229,7 @@ async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT
             mention = f"[{member.full_name}](tg://user?id={user_id})"
             messaggio = f"❗ Ciao {mention}, unisciti prima al gruppo @reclutarozzi per iniziare il tuo reclutamento."
             await context.bot.send_message(chat_id=benvenuto_group_id, text=messaggio, parse_mode="Markdown", message_thread_id=benvenuto_topic_id)
+
 
 async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -282,13 +294,71 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await invia_resoconto_gestione(fake_user_id, context)
     await update.message.reply_text(f"Nuovo profilo creato per @{username_arg} con tag #{tag_arg} e resoconti rigenerati.")
 
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
-app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
-app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), monitora_username))
-app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
 
-print("✅ Bot in esecuzione con polling...")
+async def profilerecord(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.message.reply_text("Uso corretto: /profilerecord @username")
+        return
+    username = context.args[0].lstrip("@").lower()
+    user_id = None
+    for uid, dati in dati_giocatori.items():
+        if dati.get("username", "").lower() == username:
+            user_id = uid
+            break
+    if user_id is None:
+        await update.message.reply_text(f"Utente @{username} non trovato.")
+        return
+    tag = dati_giocatori[user_id].get("tag")
+    if not tag:
+        await update.message.reply_text(f"Utente @{username} non ha un tag registrato.")
+        return
+
+    await update.message.reply_text(f"Recupero dati per @{username} con tag #{tag} tramite API ufficiale...")
+
+    url = f"https://api.royaleapi.com/player/{tag}"
+    headers = {
+        "Authorization": f"Bearer {ROYALE_API_TOKEN}",
+        "Accept": "application/json"
+    }
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        await update.message.reply_text(f"Errore nel recupero dati API: {e}")
+        return
+
+    war_stats = data.get("clanWar", {}).get("current", {})
+    war_wins = war_stats.get("wins", "N/A")
+    war_losses = war_stats.get("losses", "N/A")
+    war_draws = war_stats.get("draws", "N/A")
+    war_participations = war_stats.get("participations", "N/A")
+    level = data.get("expLevel", "N/A")
+
+    cards = data.get("cards", [])
+    lvl_15 = sum(1 for c in cards if c.get("level", 0) == 15)
+    lvl_14 = sum(1 for c in cards if c.get("level", 0) == 14)
+    evos = sum(c.get("evolution", 0) for c in cards)
+
+    testo = (f"Profilo di @{username} (Tag #{tag}):\n"
+             f"Livello giocatore: {level}\n"
+             f"Clan War - Vittorie: {war_wins}, Sconfitte: {war_losses}, Pareggi: {war_draws}, Partecipazioni: {war_participations}\n"
+             f"Carte Livello 15: {lvl_15}\n"
+             f"Carte Livello 14: {lvl_14}\n"
+             f"Evoluzioni totali: {evos}")
+
+    await update.message.reply_text(testo)
+
+
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuovo_utente))
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & filters.Chat(reclutamento_group_id), monitora_username))
+app.add_handler(MessageHandler(filters.TEXT & filters.PRIVATE, ricevi_tag_privato))
+app.add_handler(CommandHandler("updatetag", updatetag))
+app.add_handler(CommandHandler("profilerecord", profilerecord))
+
+
+print("Bot partito correttamente")
 app.run_polling()
