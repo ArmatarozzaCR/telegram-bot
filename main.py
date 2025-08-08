@@ -100,7 +100,6 @@ def salva_su_google_sheet(user_id):
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
-        # Blocca sempre i messaggi anche se utente già conosciuto
         utenti_in_attesa[user_id] = {"group_id": update.effective_chat.id, "nome": member.full_name, "username": member.username}
         await context.bot.restrict_chat_member(
             chat_id=update.effective_chat.id,
@@ -156,7 +155,6 @@ async def invia_resoconto(user_id, context):
 
 🔗 Profilo giocatore: {link}"""
 
-    # Se il tag è cambiato, aggiungi avviso nel messaggio senza inviare messaggi extra
     if "prev_tag" in dati and dati["prev_tag"] != tag:
         messaggio += f"\n\n⚠️ Attenzione: il tag in game è stato aggiornato da #{dati['prev_tag']} a #{tag}."
 
@@ -180,6 +178,7 @@ async def invia_resoconto_gestione(user_id, context):
     username = dati.get("username")
     username_display = f"@{username}" if username else "nessun username"
     tag = dati.get("tag", "sconosciuto")
+    prev_tag = dati.get("prev_tag", None)
     user_lang = dati.get("user_lang", None)
     nel_benvenuto = dati.get("nel_benvenuto", False)
     if user_lang:
@@ -189,13 +188,21 @@ async def invia_resoconto_gestione(user_id, context):
     else:
         lang_line = ""
         paese_line = ""
+
+    if prev_tag and prev_tag != tag:
+        link_attuale = f"https://royaleapi.com/player/{tag}"
+        link_precedente = f"https://royaleapi.com/player/{prev_tag}"
+        doppio_tag_msg = f"\n\n⚠️ ATTENZIONE: Doppio tag rilevato:\n- Attuale: {link_attuale}\n- Precedente: {link_precedente}"
+    else:
+        doppio_tag_msg = ""
+
     link = f"https://royaleapi.com/player/{tag}"
     messaggio = f"""👤 {nome} ({username_display})
 
 {lang_line}
 {paese_line}
 🔗 Profilo giocatore: {link}
-📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}"""
+📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}{doppio_tag_msg}"""
     old_msg_id = dati.get("gestione_message_id")
     if old_msg_id:
         try:
@@ -221,21 +228,17 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
         nome = None
         username = update.effective_user.username
 
-        # Se l'utente è in attesa, prendi nome e username da utenti_in_attesa
         if user_id in utenti_in_attesa:
             nome = utenti_in_attesa[user_id]["nome"]
             username = utenti_in_attesa[user_id]["username"]
             del utenti_in_attesa[user_id]
         else:
-            # Se non in attesa ma già registrato, conserva nome esistente
             if user_id in dati_giocatori:
                 nome = dati_giocatori[user_id].get("nome")
             else:
                 nome = update.effective_user.full_name if hasattr(update.effective_user, 'full_name') else ""
 
         if user_id in dati_giocatori:
-            # Non modificare la data di ingresso su Google Sheet, quindi non cancellare o cambiare 'family' o simili
-            # Aggiorna solo il tag e user_lang e username, senza cambiare la data
             dati_giocatori[user_id]["tag"] = tag
             dati_giocatori[user_id]["user_lang"] = user_lang
             dati_giocatori[user_id]["username"] = username
@@ -421,6 +424,18 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔗 Profilo giocatore: {link}"""
     await update.message.reply_text(messaggio)
 
+async def blocca_messaggi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    if chat_id != reclutamento_group_id:
+        return
+    if user_id not in dati_giocatori and user_id not in utenti_in_attesa:
+        await context.bot.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            permissions=permessi_bloccati
+        )
+
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
@@ -429,6 +444,7 @@ app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filte
 app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), monitora_username))
 app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
 app.add_handler(CommandHandler("info", info, filters.Chat(reclutamento_group_id)))
+app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), blocca_messaggi))
 
 print("✅ Bot in esecuzione con polling...")
 app.run_polling()
