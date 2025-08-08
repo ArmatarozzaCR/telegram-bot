@@ -9,8 +9,18 @@ from telegram.ext import (
 from telegram.error import BadRequest
 import os
 import re
+import gspread
+from google.oauth2.service_account import Credentials
 
 TOKEN = os.getenv("TOKEN")
+
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+CREDS_FILE = 'credentials.json'
+SPREADSHEET_ID = "1JhIhbMrBU-V9_OGpWMiwrCFhzx0blInGP6-6G_TCyFw"
+
+creds = Credentials.from_service_account_file(CREDS_FILE, scopes=SCOPES)
+gc = gspread.authorize(creds)
+sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 
 utenti_in_attesa = {}
 dati_giocatori = {}
@@ -42,6 +52,57 @@ permessi_sbloccati = ChatPermissions(
     can_send_other_messages=True,
     can_add_web_page_previews=True
 )
+
+def carica_da_google_sheet():
+    global dati_giocatori
+    dati_giocatori = {}
+    rows = sheet.get_all_records()
+    for row in rows:
+        try:
+            user_id = int(row.get("user_id"))
+        except:
+            continue
+        dati_giocatori[user_id] = {
+            "nome": row.get("nome", ""),
+            "username": row.get("username", ""),
+            "tag": row.get("tag", ""),
+            "user_lang": row.get("user_lang", ""),
+            "nel_benvenuto": True if str(row.get("family", "")).lower() == "sì" else False,
+            "last_message_id": None,
+            "gestione_message_id": None,
+            "data_ingresso": row.get("data_ingresso", "") 
+        }
+
+carica_da_google_sheet()
+
+def salva_su_google_sheet(user_id):
+    dati = dati_giocatori.get(user_id)
+    if not dati:
+        return
+    rows = sheet.get_all_records()
+    riga_da_aggiornare = None
+    for i, row in enumerate(rows, start=2):
+        if str(row.get("user_id")) == str(user_id):
+            riga_da_aggiornare = i
+            break
+    valori = [
+        str(user_id),
+        dati.get("nome", ""),
+        dati.get("username", ""),
+        dati.get("tag", ""),
+        dati.get("user_lang", ""),
+        "Sì" if dati.get("nel_benvenuto", False) else "No",
+        dati.get("data_ingresso", "")
+    ]
+    if riga_da_aggiornare:
+        sheet.update(f"A{riga_da_aggiornare}:G{riga_da_aggiornare}", [valori])
+    else:
+        valori_da_aggiungere = valori.copy()
+        if not valori_da_aggiungere[6]:
+            from datetime import datetime
+            valori_da_aggiungere[6] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            dati["data_ingresso"] = valori_da_aggiungere[6]
+        sheet.append_row(valori_da_aggiungere)
 
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
@@ -108,8 +169,9 @@ async def invia_resoconto(user_id, context):
         else:
             avviso = f"⚠️ {nome}, please set a Telegram username to make your recruitment easier."
         await context.bot.send_message(chat_id=group_id, text=avviso, reply_to_message_id=msg.message_id)
+    salva_su_google_sheet(user_id)
 
-async def invia_resoconto_gestione(user_id, context):
+async def invia_resoconto_gestione(user_id, context, vecchio_tag=None):
     dati = dati_giocatori.get(user_id)
     if not dati:
         return
@@ -127,11 +189,14 @@ async def invia_resoconto_gestione(user_id, context):
         lang_line = ""
         paese_line = ""
     link = f"https://royaleapi.com/player/{tag}"
+    avviso_tag_modificato = ""
+    if vecchio_tag and vecchio_tag != tag:
+        avviso_tag_modificato = f"\n⚠️ Tag precedente: https://royaleapi.com/player/{vecchio_tag}"
     messaggio = f"""👤 {nome} ({username_display})
 
 {lang_line}
 {paese_line}
-🔗 Profilo giocatore: {link}
+🔗 Profilo giocatore: {link}{avviso_tag_modificato}
 📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}"""
     old_msg_id = dati.get("gestione_message_id")
     if old_msg_id:
@@ -145,6 +210,7 @@ async def invia_resoconto_gestione(user_id, context):
         message_thread_id=gestione_topic_id
     )
     dati["gestione_message_id"] = msg.message_id
+    salva_su_google_sheet(user_id)
 
 async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -163,7 +229,8 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "user_lang": user_lang,
                 "last_message_id": None,
                 "gestione_message_id": None,
-                "nel_benvenuto": False
+                "nel_benvenuto": False,
+                "data_ingresso": ""
             }
             await invia_resoconto(user_id, context)
             await invia_resoconto_gestione(user_id, context)
@@ -199,6 +266,11 @@ async def monitora_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
+        await context.bot.restrict_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=user_id,
+            permissions=permessi_bloccati
+        )
         if user_id in dati_giocatori:
             dati = dati_giocatori[user_id]
             dati["nel_benvenuto"] = True
@@ -247,9 +319,10 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id = uid
             break
     if user_id is not None:
+        vecchio_tag = dati_giocatori[user_id].get("tag")
         dati_giocatori[user_id]["tag"] = tag_arg
         await invia_resoconto(user_id, context)
-        await invia_resoconto_gestione(user_id, context)
+        await invia_resoconto_gestione(user_id, context, vecchio_tag=vecchio_tag)
         await update.message.reply_text(f"Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
         return
     for uid, dati in utenti_in_attesa.items():
@@ -262,7 +335,8 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "user_lang": "sconosciuta",
                 "last_message_id": None,
                 "gestione_message_id": None,
-                "nel_benvenuto": False
+                "nel_benvenuto": False,
+                "data_ingresso": ""
             }
             await invia_resoconto(user_id, context)
             await invia_resoconto_gestione(user_id, context)
@@ -276,7 +350,8 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "user_lang": None,
         "last_message_id": None,
         "gestione_message_id": None,
-        "nel_benvenuto": False
+        "nel_benvenuto": False,
+        "data_ingresso": ""
     }
     await invia_resoconto(fake_user_id, context)
     await invia_resoconto_gestione(fake_user_id, context)
@@ -289,6 +364,57 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
 app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), monitora_username))
 app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
+
+async def aggiorna_dati_tag_scraping(user_id, context):
+    import requests
+    dati = dati_giocatori.get(user_id)
+    if not dati:
+        return
+    tag = dati.get("tag")
+    if not tag:
+        return
+    url = f"https://royaleapi.com/player/{tag}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return
+        testo = r.text
+        match_nome = re.search(r'<h1[^>]*>([^<]+)</h1>', testo)
+        if match_nome:
+            nome_estratto = match_nome.group(1).strip()
+            dati["nome"] = nome_estratto
+        match_tag = re.search(r'Tag: #([A-Z0-9]+)', testo)
+        if match_tag:
+            tag_estratto = match_tag.group(1)
+            if tag_estratto != tag:
+                dati["tag"] = tag_estratto
+    except:
+        return
+    salva_su_google_sheet(user_id)
+    await invia_resoconto(user_id, context)
+    await invia_resoconto_gestione(user_id, context)
+
+async def aggiorna_tutti_i_dati_scraping(context):
+    for user_id in list(dati_giocatori.keys()):
+        await aggiorna_dati_tag_scraping(user_id, context)
+
+async def comando_aggiorna_tutti(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if not (member.status in ['administrator', 'creator']):
+            await update.message.reply_text("❌ Solo admin possono usare questo comando.")
+            return
+    except:
+        await update.message.reply_text("Errore nel verificare i permessi.")
+        return
+    await update.message.reply_text("Aggiornamento dati in corso...")
+    await aggiorna_tutti_i_dati_scraping(context)
+    await update.message.reply_text("Aggiornamento dati completato.")
+
+app.add_handler(CommandHandler("aggiornatutti", comando_aggiorna_tutti, filters.Chat(gestione_group_id)))
 
 print("✅ Bot in esecuzione con polling...")
 app.run_polling()
