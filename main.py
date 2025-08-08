@@ -59,6 +59,7 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
         messaggio = f"""👋 Benvenuto/a {member.full_name} ({username_display})!
 
 🇮🇹 Questo è il gruppo di reclutamento della nostra grande Family!
+
 ⬇️ Clicca sul pulsante qui sotto per iniziare il tuo reclutamento.
 
 —
@@ -109,30 +110,29 @@ async def invia_resoconto(user_id, context):
         await context.bot.send_message(chat_id=group_id, text=avviso, reply_to_message_id=msg.message_id)
 
 async def invia_resoconto_gestione(user_id, context):
-    if user_id not in dati_giocatori:
+    dati = dati_giocatori.get(user_id)
+    if not dati:
         return
-    dati = dati_giocatori[user_id]
-    nome = dati["nome"]
-    username = dati["username"]
+    nome = dati.get("nome", "Utente")
+    username = dati.get("username")
     username_display = f"@{username}" if username else "nessun username"
-    tag = dati["tag"]
-    paese = codice_to_paese.get(dati.get("user_lang", ""), "non identificato")
+    tag = dati.get("tag", "sconosciuto")
+    user_lang = dati.get("user_lang", None)
     nel_benvenuto = dati.get("nel_benvenuto", False)
-    link = f"https://royaleapi.com/player/{tag}"
-
-    # Controlla se mostrare lingua e provenienza
-    if "user_lang" in dati and dati["user_lang"] != "sconosciuta":
-        messaggio = f"""👤 {nome} ({username_display})
-
-🌍 Lingua: {dati['user_lang'].upper()}
-📍 Provenienza: {paese}
-🔗 Profilo giocatore: {link}
-📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}"""
+    if user_lang:
+        paese = codice_to_paese.get(user_lang, "non identificato")
+        lang_line = f"🌍 Lingua: {user_lang.upper()}"
+        paese_line = f"📍 Provenienza: {paese}"
     else:
-        messaggio = f"""👤 {nome} ({username_display})
+        lang_line = ""
+        paese_line = ""
+    link = f"https://royaleapi.com/player/{tag}"
+    messaggio = f"""👤 {nome} ({username_display})
+
+{lang_line}
+{paese_line}
 🔗 Profilo giocatore: {link}
 📥 Presente nel gruppo Family: {"✅ Sì" if nel_benvenuto else "❌ No"}"""
-
     old_msg_id = dati.get("gestione_message_id")
     if old_msg_id:
         try:
@@ -143,8 +143,6 @@ async def invia_resoconto_gestione(user_id, context):
         chat_id=gestione_group_id,
         text=messaggio,
         message_thread_id=gestione_topic_id
-    )
-    dati["gestione_message_id"] = msg.message_id
     )
     dati["gestione_message_id"] = msg.message_id
 
