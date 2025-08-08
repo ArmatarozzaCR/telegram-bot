@@ -44,8 +44,8 @@ codice_to_paese = {
 reclutamento_group_id = -1002544640127
 benvenuto_group_id = -1001834238708
 benvenuto_topic_id = 60864
-gestione_group_id = -1002020527955
-gestione_topic_id = 76313
+gestione_group_id = -1002248491846
+gestione_topic_id = 29730
 
 permessi_bloccati = ChatPermissions(can_send_messages=False)
 permessi_sbloccati = ChatPermissions(
