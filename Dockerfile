@@ -5,6 +5,8 @@ WORKDIR /app
 COPY requirements.txt requirements.txt
 RUN pip install -r requirements.txt
 
-COPY . .
+COPY main.py main.py
+COPY credentials.json credentials.json
+# Copia eventuali altri file necessari
 
 CMD ["python3", "main.py"]
