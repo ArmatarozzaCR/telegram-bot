@@ -12,7 +12,7 @@ import re
 import gspread
 from google.oauth2.service_account import Credentials
 
-TOKEN = "8193058864:AAF8wggyA80MwlSXt_jAST5wtB2eACx1wDw"
+TOKEN = os.getenv("TOKEN")
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 CREDS_FILE = 'credentials.json'
