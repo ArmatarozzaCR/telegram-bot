@@ -11,6 +11,7 @@ import os
 import re
 import gspread
 from google.oauth2.service_account import Credentials
+from datetime import datetime
 
 TOKEN = os.getenv("TOKEN")
 
@@ -80,20 +81,25 @@ def salva_su_google_sheet(user_id):
         return
     rows = sheet.get_all_records()
     riga_da_aggiornare = None
+    data_ingresso_presente = None
     for i, row in enumerate(rows, start=2):
         if str(row.get("user_id")) == str(user_id):
             riga_da_aggiornare = i
+            data_ingresso_presente = row.get("data_ingresso", None)
             break
+    if not data_ingresso_presente:
+        data_ingresso_presente = datetime.now().strftime("%Y-%m-%d")
     valori = [
         str(user_id),
         dati.get("nome", ""),
         dati.get("username", ""),
         dati.get("tag", ""),
         dati.get("user_lang", ""),
-        "Sì" if dati.get("nel_benvenuto", False) else "No"
+        "Sì" if dati.get("nel_benvenuto", False) else "No",
+        data_ingresso_presente
     ]
     if riga_da_aggiornare:
-        sheet.update(f"A{riga_da_aggiornare}:F{riga_da_aggiornare}", [valori])
+        sheet.update(f"A{riga_da_aggiornare}:G{riga_da_aggiornare}", [valori])
     else:
         sheet.append_row(valori)
 
