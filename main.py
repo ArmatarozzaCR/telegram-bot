@@ -13,7 +13,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-TOKEN = "8193058864:AAG4crOEBa0vCQtXG9-oZUPDpY81ctxbYpU"
+TOKEN = os.getenv("TOKEN")
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 CREDS_FILE = 'credentials.json'
