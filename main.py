@@ -460,6 +460,18 @@ async def baby_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def minibomba_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/PJG0R00")
 
+async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    messaggio = (
+        "🪖 *Family Armata Rozza*\n\n"
+        "• [Armata Rozza](https://royaleapi.com/clan/P2UQP9CJ)\n"
+        "• [Ce Magnamm](https://royaleapi.com/clan/L08VGUJ9)\n"
+        "• [I Tori Feroci](https://royaleapi.com/clan/YC89P002)\n"
+        "• [Dog Rider](https://royaleapi.com/clan/RP889JU)\n"
+        "• [BabyRozza](https://royaleapi.com/clan/QCQPJ90R)\n"
+        "• [Mini Bombarolo](https://royaleapi.com/clan/PJG0R00)\n"
+    )
+    await update.message.reply_text(messaggio, parse_mode="Markdown")
+
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
@@ -475,6 +487,7 @@ app.add_handler(CommandHandler("tori", tori_command))
 app.add_handler(CommandHandler("dog", dog_command))
 app.add_handler(CommandHandler("baby", baby_command))
 app.add_handler(CommandHandler("minibomba", minibomba_command))
+app.add_handler(CommandHandler("clan", clan_command))
 
 print("✅ Bot in esecuzione con polling...")
 app.run_polling()
