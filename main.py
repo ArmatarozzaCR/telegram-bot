@@ -13,7 +13,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = "8193058864:AAG4crOEBa0vCQtXG9-oZUPDpY81ctxbYpU"
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 CREDS_FILE = 'credentials.json'
@@ -442,6 +442,24 @@ async def blocca_messaggi(update: Update, context: ContextTypes.DEFAULT_TYPE):
             permissions=permessi_bloccati
         )
 
+async def armata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("https://royaleapi.com/clan/P2UQP9CJ")
+
+async def magnamm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("https://royaleapi.com/clan/L08VGUJ9")
+
+async def tori_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("https://royaleapi.com/clan/YC89P002")
+
+async def dog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("https://royaleapi.com/clan/RP889JU")
+
+async def baby_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("https://royaleapi.com/clan/QCQPJ90R")
+
+async def minibomba_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("https://royaleapi.com/clan/PJG0R00")
+
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
@@ -451,6 +469,12 @@ app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEX
 app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
 app.add_handler(CommandHandler("info", info, filters.Chat(reclutamento_group_id)))
 app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), blocca_messaggi))
+app.add_handler(CommandHandler("armata", armata_command))
+app.add_handler(CommandHandler("magnamm", magnamm_command))
+app.add_handler(CommandHandler("tori", tori_command))
+app.add_handler(CommandHandler("dog", dog_command))
+app.add_handler(CommandHandler("baby", baby_command))
+app.add_handler(CommandHandler("minibomba", minibomba_command))
 
 print("✅ Bot in esecuzione con polling...")
 app.run_polling()
