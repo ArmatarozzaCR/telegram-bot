@@ -12,6 +12,14 @@ import re
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import logging
+import time
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("TOKEN")
 
@@ -57,21 +65,25 @@ permessi_sbloccati = ChatPermissions(
 def carica_da_google_sheet():
     global dati_giocatori
     dati_giocatori = {}
-    rows = sheet.get_all_records()
-    for row in rows:
-        try:
-            user_id = int(row.get("user_id"))
-        except:
-            continue
-        dati_giocatori[user_id] = {
-            "nome": row.get("nome", ""),
-            "username": row.get("username", ""),
-            "tag": row.get("tag", ""),
-            "user_lang": row.get("user_lang", ""),
-            "nel_benvenuto": True if str(row.get("family", "")).lower() == "sì" else False,
-            "last_message_id": None,
-            "gestione_message_id": None,
-        }
+    try:
+        rows = sheet.get_all_records()
+        for row in rows:
+            try:
+                user_id = int(row.get("user_id"))
+            except:
+                continue
+            dati_giocatori[user_id] = {
+                "nome": row.get("nome", ""),
+                "username": row.get("username", ""),
+                "tag": row.get("tag", ""),
+                "user_lang": row.get("user_lang", ""),
+                "nel_benvenuto": True if str(row.get("family", "")).lower() == "sì" else False,
+                "last_message_id": None,
+                "gestione_message_id": None,
+            }
+        logger.info(f"Caricati {len(dati_giocatori)} giocatori da Google Sheet.")
+    except Exception as e:
+        logger.error(f"Errore caricamento Google Sheet: {e}")
 
 carica_da_google_sheet()
 
@@ -79,39 +91,47 @@ def salva_su_google_sheet(user_id):
     dati = dati_giocatori.get(user_id)
     if not dati:
         return
-    rows = sheet.get_all_records()
-    riga_da_aggiornare = None
-    data_ingresso_presente = None
-    for i, row in enumerate(rows, start=2):
-        if str(row.get("user_id")) == str(user_id):
-            riga_da_aggiornare = i
-            data_ingresso_presente = row.get("data_ingresso", None)
-            break
-    if not data_ingresso_presente:
-        data_ingresso_presente = datetime.now().strftime("%Y-%m-%d")
-    valori = [
-        str(user_id),
-        dati.get("nome", ""),
-        dati.get("username", ""),
-        dati.get("tag", ""),
-        dati.get("user_lang", ""),
-        "Sì" if dati.get("nel_benvenuto", False) else "No",
-        data_ingresso_presente
-    ]
-    if riga_da_aggiornare:
-        sheet.update(f"A{riga_da_aggiornare}:G{riga_da_aggiornare}", [valori])
-    else:
-        sheet.append_row(valori)
+    try:
+        rows = sheet.get_all_records()
+        riga_da_aggiornare = None
+        data_ingresso_presente = None
+        for i, row in enumerate(rows, start=2):
+            if str(row.get("user_id")) == str(user_id):
+                riga_da_aggiornare = i
+                data_ingresso_presente = row.get("data_ingresso", None)
+                break
+        if not data_ingresso_presente:
+            data_ingresso_presente = datetime.now().strftime("%Y-%m-%d")
+        valori = [
+            str(user_id),
+            dati.get("nome", ""),
+            dati.get("username", ""),
+            dati.get("tag", ""),
+            dati.get("user_lang", ""),
+            "Sì" if dati.get("nel_benvenuto", False) else "No",
+            data_ingresso_presente
+        ]
+        if riga_da_aggiornare:
+            sheet.update(f"A{riga_da_aggiornare}:G{riga_da_aggiornare}", [valori])
+        else:
+            sheet.append_row(valori)
+        logger.info(f"Dati salvati su Google Sheet per user_id={user_id}")
+    except Exception as e:
+        logger.error(f"Errore salvataggio Google Sheet per user_id={user_id}: {e}")
 
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
         user_id = member.id
         utenti_in_attesa[user_id] = {"group_id": update.effective_chat.id, "nome": member.full_name, "username": member.username}
-        await context.bot.restrict_chat_member(
-            chat_id=update.effective_chat.id,
-            user_id=user_id,
-            permissions=permessi_bloccati
-        )
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=update.effective_chat.id,
+                user_id=user_id,
+                permissions=permessi_bloccati
+            )
+            logger.info(f"Utente {user_id} bloccato nel gruppo reclutamento")
+        except Exception as e:
+            logger.error(f"Errore restrict_chat_member per nuovo utente {user_id}: {e}")
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("clicca qua / click here", url=f"https://t.me/{context.bot.username}?start=join")]
         ])
@@ -127,7 +147,10 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🇬🇧 This is the recruitment group of our great Family!
 
 ⬇️ Click the button below to start your recruitment."""
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=messaggio, reply_markup=keyboard)
+        try:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=messaggio, reply_markup=keyboard)
+        except Exception as e:
+            logger.error(f"Errore invio messaggio benvenuto: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -166,15 +189,19 @@ async def invia_resoconto(user_id, context):
 
     dati["prev_tag"] = tag
 
-    msg = await context.bot.send_message(chat_id=group_id, text=messaggio)
-    dati["last_message_id"] = msg.message_id
-    if not username:
-        if paese == "Italia":
-            avviso = f"⚠️ {nome}, inserisci un username Telegram per facilitare il tuo reclutamento."
-        else:
-            avviso = f"⚠️ {nome}, please set a Telegram username to make your recruitment easier."
-        await context.bot.send_message(chat_id=group_id, text=avviso, reply_to_message_id=msg.message_id)
-    salva_su_google_sheet(user_id)
+    try:
+        msg = await context.bot.send_message(chat_id=group_id, text=messaggio)
+        dati["last_message_id"] = msg.message_id
+        logger.info(f"Resoconto inviato per user_id={user_id}")
+        if not username:
+            if paese == "Italia":
+                avviso = f"⚠️ {nome}, inserisci un username Telegram per facilitare il tuo reclutamento."
+            else:
+                avviso = f"⚠️ {nome}, please set a Telegram username to make your recruitment easier."
+            await context.bot.send_message(chat_id=group_id, text=avviso, reply_to_message_id=msg.message_id)
+        salva_su_google_sheet(user_id)
+    except Exception as e:
+        logger.error(f"Errore invio resoconto per user_id={user_id}: {e}")
 
 async def invia_resoconto_gestione(user_id, context):
     dati = dati_giocatori.get(user_id)
@@ -213,15 +240,19 @@ async def invia_resoconto_gestione(user_id, context):
     if old_msg_id:
         try:
             await context.bot.delete_message(chat_id=gestione_group_id, message_id=old_msg_id)
-        except:
-            pass
-    msg = await context.bot.send_message(
-        chat_id=gestione_group_id,
-        text=messaggio,
-        message_thread_id=gestione_topic_id
-    )
-    dati["gestione_message_id"] = msg.message_id
-    salva_su_google_sheet(user_id)
+        except Exception as e:
+            logger.warning(f"Impossibile eliminare messaggio gestione {old_msg_id}: {e}")
+    try:
+        msg = await context.bot.send_message(
+            chat_id=gestione_group_id,
+            text=messaggio,
+            message_thread_id=gestione_topic_id
+        )
+        dati["gestione_message_id"] = msg.message_id
+        logger.info(f"Resoconto gestione inviato per user_id={user_id}")
+        salva_su_google_sheet(user_id)
+    except Exception as e:
+        logger.error(f"Errore invio resoconto gestione per user_id={user_id}: {e}")
 
 async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -259,13 +290,17 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "nel_benvenuto": False
             }
 
-        await invia_resoconto(user_id, context)
-        await invia_resoconto_gestione(user_id, context)
-        await context.bot.restrict_chat_member(
-            chat_id=reclutamento_group_id,
-            user_id=user_id,
-            permissions=permessi_sbloccati
-        )
+        try:
+            await invia_resoconto(user_id, context)
+            await invia_resoconto_gestione(user_id, context)
+            await context.bot.restrict_chat_member(
+                chat_id=reclutamento_group_id,
+                user_id=user_id,
+                permissions=permessi_sbloccati
+            )
+            logger.info(f"Utente {user_id} sbloccato nel gruppo reclutamento")
+        except Exception as e:
+            logger.error(f"Errore durante ricezione tag privato per user_id={user_id}: {e}")
     else:
         await update.message.reply_text("❗Per favore, scrivimi il tuo tag in game (es: #VPJJPQCPG).\n\nPlease write me your player tag (like #VPJJPQCPG). ")
 
@@ -282,8 +317,8 @@ async def monitora_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if msg_id:
                 try:
                     await context.bot.delete_message(chat_id=reclutamento_group_id, message_id=msg_id)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Impossibile eliminare messaggio {msg_id}: {e}")
             await invia_resoconto(user.id, context)
             await invia_resoconto_gestione(user.id, context)
 
@@ -328,8 +363,8 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tag_arg = context.args[1].upper()
     if username_arg.startswith("@"):
         username_arg = username_arg[1:]
-    if not re.match(r"#?[A-Z0-9]+", tag_arg):
-        await update.message.reply_text("Tag non valido. Deve iniziare con # e contenere lettere/numeri.")
+    if not re.match(r"^#?[A-Z0-9]+$", tag_arg):
+        await update.message.reply_text("Tag non valido. Deve iniziare con # e contenere solo lettere/numeri.")
         return
     tag_arg = tag_arg.lstrip("#")
     user_id = None
@@ -339,9 +374,14 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
             break
     if user_id is not None:
         dati_giocatori[user_id]["tag"] = tag_arg
-        await invia_resoconto(user_id, context)
-        await invia_resoconto_gestione(user_id, context)
-        await update.message.reply_text(f"Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
+        try:
+            salva_su_google_sheet(user_id)
+            await invia_resoconto(user_id, context)
+            await invia_resoconto_gestione(user_id, context)
+            await update.message.reply_text(f"✅ Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
+        except Exception as e:
+            logger.error(f"Errore updatetag per user_id={user_id}: {e}")
+            await update.message.reply_text(f"⚠️ Tag salvato su database, ma errore nell'invio resoconti.")
         return
     for uid, dati in utenti_in_attesa.items():
         if dati.get("username", "").lower() == username_arg.lower():
@@ -355,11 +395,17 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "gestione_message_id": None,
                 "nel_benvenuto": False
             }
-            await invia_resoconto(user_id, context)
-            await invia_resoconto_gestione(user_id, context)
-            await update.message.reply_text(f"Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
+            del utenti_in_attesa[user_id]
+            try:
+                salva_su_google_sheet(user_id)
+                await invia_resoconto(user_id, context)
+                await invia_resoconto_gestione(user_id, context)
+                await update.message.reply_text(f"✅ Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
+            except Exception as e:
+                logger.error(f"Errore updatetag per user_id={user_id}: {e}")
+                await update.message.reply_text(f"⚠️ Tag salvato su database, ma errore nell'invio resoconti.")
             return
-    fake_user_id = - (len(dati_giocatori) + len(utenti_in_attesa) + 1)
+    fake_user_id = -int(time.time())
     dati_giocatori[fake_user_id] = {
         "nome": username_arg,
         "username": username_arg,
@@ -369,9 +415,14 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "gestione_message_id": None,
         "nel_benvenuto": False
     }
-    await invia_resoconto(fake_user_id, context)
-    await invia_resoconto_gestione(fake_user_id, context)
-    await update.message.reply_text(f"Nuovo profilo creato per @{username_arg} con tag #{tag_arg} e resoconti rigenerati.")
+    try:
+        salva_su_google_sheet(fake_user_id)
+        await invia_resoconto(fake_user_id, context)
+        await invia_resoconto_gestione(fake_user_id, context)
+        await update.message.reply_text(f"✅ Nuovo profilo creato per @{username_arg} con tag #{tag_arg} e resoconti rigenerati.")
+    except Exception as e:
+        logger.error(f"Errore updatetag per nuovo utente: {e}")
+        await update.message.reply_text(f"⚠️ Profilo salvato su database, ma errore nell'invio resoconti.")
 
 async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -384,7 +435,8 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not (member.status in ['administrator', 'creator']):
             await update.message.reply_text("❌ Solo admin possono usare questo comando.")
             return
-    except:
+    except Exception as e:
+        logger.error(f"Errore verifica permessi info: {e}")
         await update.message.reply_text("Errore nel verificare i permessi.")
         return
     if not context.args or len(context.args) != 1:
@@ -414,6 +466,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username_display = f"@{username}" if username else "nessun username"
     tag = dati.get("tag", "sconosciuto")
     user_lang = dati.get("user_lang", None)
+    nel_benvenuto = dati.get("nel_benvenuto", False)
     if user_lang:
         paese = codice_to_paese.get(user_lang, "non identificato")
         lang_line = f"🌍 Lingua: {user_lang.upper()}"
@@ -422,25 +475,15 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang_line = ""
         paese_line = ""
     link = f"https://royaleapi.com/player/{tag}"
+    family_status = "✅ Sì" if nel_benvenuto else "❌ No"
     messaggio = f"""👤 {nome} ({username_display})
 
 {lang_line}
 {paese_line}
+📥 Nel gruppo Family: {family_status}
 
 🔗 Profilo giocatore: {link}"""
     await update.message.reply_text(messaggio)
-
-async def blocca_messaggi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    if chat_id != reclutamento_group_id:
-        return
-    if user_id not in dati_giocatori and user_id not in utenti_in_attesa:
-        await context.bot.restrict_chat_member(
-            chat_id=chat_id,
-            user_id=user_id,
-            permissions=permessi_bloccati
-        )
 
 async def armata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/P2UQP9CJ")
@@ -472,6 +515,9 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(messaggio, parse_mode="Markdown")
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Exception while handling an update: {context.error}", exc_info=True)
+
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
@@ -480,7 +526,6 @@ app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filte
 app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), monitora_username))
 app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
 app.add_handler(CommandHandler("info", info, filters.Chat(reclutamento_group_id)))
-app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), blocca_messaggi))
 app.add_handler(CommandHandler("armata", armata_command))
 app.add_handler(CommandHandler("magnamm", magnamm_command))
 app.add_handler(CommandHandler("tori", tori_command))
@@ -488,6 +533,7 @@ app.add_handler(CommandHandler("dog", dog_command))
 app.add_handler(CommandHandler("baby", baby_command))
 app.add_handler(CommandHandler("minibomba", minibomba_command))
 app.add_handler(CommandHandler("clan", clan_command))
+app.add_error_handler(error_handler)
 
-print("✅ Bot in esecuzione con polling...")
+logger.info("✅ Bot in esecuzione con polling...")
 app.run_polling()

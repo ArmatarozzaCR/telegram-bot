@@ -1,2 +1,3 @@
 python-telegram-bot==20.8
 gspread
+aiohttp>=3.8.0
