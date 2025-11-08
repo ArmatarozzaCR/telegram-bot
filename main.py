@@ -118,41 +118,12 @@ def salva_su_google_sheet(user_id):
     except Exception as e:
         logger.error(f"Errore salvataggio Google Sheet per user_id={user_id}: {e}")
 
-def get_league_name(trophies):
-    if trophies >= 5000:
-        return "Lega Leggendaria 3"
-    elif trophies >= 4000:
-        return "Lega Leggendaria 2"
-    elif trophies >= 3000:
-        return "Lega Leggendaria 1"
-    elif trophies >= 1500:
-        return "Lega Oro"
-    elif trophies >= 600:
-        return "Lega Argento"
-    else:
-        return "Lega Bronzo"
-
-def get_league_short(trophies):
-    if trophies >= 5000:
-        return "Leg 3"
-    elif trophies >= 4000:
-        return "Leg 2"
-    elif trophies >= 3000:
-        return "Leg 1"
-    elif trophies >= 1500:
-        return "Oro"
-    elif trophies >= 600:
-        return "Argento"
-    else:
-        return "Bronzo"
-
 async def scrape_war_stats(tag):
     import aiohttp
     from bs4 import BeautifulSoup
     import asyncio
-    import urllib.parse
     
-    target_url = f"https://royaleapi.com/player/{tag}/riverrace"
+    target_url = f"https://royaleapi.com/player/{tag}"
     
     scraper_api_key = os.getenv("SCRAPER_API_KEY")
     
@@ -160,9 +131,7 @@ async def scrape_war_stats(tag):
         logger.error("SCRAPER_API_KEY non configurata!")
         return None
     
-    encoded_url = urllib.parse.quote(target_url)
-    
-    api_url = f"http://api.scraperapi.com?api_key={scraper_api_key}&url={encoded_url}&render=true"
+    api_url = f"http://api.scraperapi.com?api_key={scraper_api_key}&url={target_url}&render=true"
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -188,90 +157,70 @@ async def scrape_war_stats(tag):
                 player_url = f"https://royaleapi.com/player/{tag}"
                 wars = []
                 
-                war_items = soup.find_all('div', class_='item')[:10]
+                table_rows = soup.find_all('tr')
                 
-                if not war_items:
-                    logger.error(f"Nessun elemento .item trovato per tag {tag}")
-                    return None
+                logger.info(f"Trovate {len(table_rows)} righe nella pagina")
                 
-                logger.info(f"Trovati {len(war_items)} elementi war")
-                
-                for war_item in war_items:
-                    war_info = {}
+                for row in table_rows[:10]:
+                    cells = row.find_all('td')
                     
-                    date_div = war_item.find('div', class_='date')
-                    war_info['date'] = date_div.get_text(strip=True) if date_div else "N/A"
+                    if len(cells) < 8:
+                        continue
                     
-                    position_div = war_item.find('div', class_='position')
-                    if position_div:
-                        pos_text = position_div.get_text(strip=True).replace('°', '').replace('st', '').replace('nd', '').replace('rd', '').replace('th', '').strip()
-                        war_info['position'] = pos_text
-                    else:
-                        war_info['position'] = "N/A"
-                    
-                    clan_div = war_item.find('div', class_='clan_name')
-                    if clan_div:
-                        war_info['clan_name'] = clan_div.get_text(strip=True)
-                        clan_link = clan_div.find('a')
-                        if clan_link and clan_link.get('href'):
-                            href = clan_link.get('href')
+                    try:
+                        war_info = {}
+                        
+                        season_text = cells[0].get_text(strip=True)
+                        war_info['date'] = cells[1].get_text(strip=True)
+                        
+                        rank_text = cells[2].get_text(strip=True)
+                        war_info['position'] = rank_text
+                        
+                        clan_cell = cells[3]
+                        clan_link = clan_cell.find('a')
+                        if clan_link:
+                            war_info['clan_name'] = clan_link.get_text(strip=True)
+                            href = clan_link.get('href', '')
                             if '/clan/' in href:
                                 war_info['clan_tag'] = href.split('/clan/')[-1].split('/')[0]
                             else:
                                 war_info['clan_tag'] = None
                         else:
+                            war_info['clan_name'] = clan_cell.get_text(strip=True)
                             war_info['clan_tag'] = None
-                    else:
-                        war_info['clan_name'] = "Sconosciuto"
-                        war_info['clan_tag'] = None
-                    
-                    trophies_div = war_item.find('div', class_='clan_score')
-                    if trophies_div:
-                        trophy_text = trophies_div.get_text(strip=True).replace(',', '').replace('.', '')
+                        
+                        decks_text = cells[4].get_text(strip=True)
                         try:
-                            war_info['clan_trophies'] = int(trophy_text)
-                        except:
-                            war_info['clan_trophies'] = 0
-                    else:
-                        war_info['clan_trophies'] = 0
-                    
-                    decks_div = war_item.find('div', class_='decks_used')
-                    if decks_div:
-                        decks_text = decks_div.get_text(strip=True)
-                        try:
-                            used = int(decks_text.split('/')[0])
-                            war_info['decks_used'] = used
+                            war_info['decks_used'] = int(decks_text)
                         except:
                             war_info['decks_used'] = 0
-                    else:
-                        war_info['decks_used'] = 0
-                    
-                    fame_div = war_item.find('div', class_='fame')
-                    if fame_div:
-                        fame_text = fame_div.get_text(strip=True).replace(',', '').replace('.', '')
+                        
+                        fame_text = cells[5].get_text(strip=True).replace(',', '').replace('.', '')
                         try:
                             war_info['medals'] = int(fame_text)
                         except:
                             war_info['medals'] = 0
-                    else:
-                        war_info['medals'] = 0
-                    
-                    boat_div = war_item.find('div', class_='boat_attacks')
-                    if boat_div:
-                        boat_text = boat_div.get_text(strip=True)
+                        
+                        boat_text = cells[7].get_text(strip=True)
                         try:
                             war_info['boat_attacks'] = int(boat_text)
                         except:
                             war_info['boat_attacks'] = 0
-                    else:
-                        war_info['boat_attacks'] = 0
-                    
-                    if war_info['decks_used'] > 0:
-                        war_info['avg_medals'] = round(war_info['medals'] / war_info['decks_used'])
-                    else:
-                        war_info['avg_medals'] = 0
-                    
-                    wars.append(war_info)
+                        
+                        if war_info['decks_used'] > 0:
+                            war_info['avg_medals'] = round(war_info['medals'] / war_info['decks_used'])
+                        else:
+                            war_info['avg_medals'] = 0
+                        
+                        wars.append(war_info)
+                        
+                    except Exception as e:
+                        logger.error(f"Errore parsing riga war: {e}")
+                        continue
+                
+                if not wars:
+                    logger.error(f"Nessuna war trovata per tag {tag}")
+                    return None
                 
                 logger.info(f"✅ Recuperate {len(wars)} war per tag {tag} tramite ScraperAPI")
                 
@@ -321,7 +270,6 @@ def format_war_message(nome, username, war_data):
         icon = position_icons.get(pos, '🏅')
         
         clan_link = f"https://royaleapi.com/clan/{war['clan_tag']}" if war['clan_tag'] else ""
-        league = get_league_name(war['clan_trophies'])
         
         total_decks += war['decks_used']
         total_medals += war['medals']
@@ -330,8 +278,7 @@ def format_war_message(nome, username, war_data):
         message += f"""{icon} War #{idx} - {war['date']}
 🏰 Clan: {war['clan_name']}
 🔗 {clan_link}
-├ 🏆 Lega Clan: {league}
-├ ⚔️ Deck Usati: {war['decks_used']} su 16
+├ ⚔️ Deck Usati: {war['decks_used']}
 ├ 🏅 Medaglie: {war['medals']:,}
 ├ 🚢 Attacchi Navali: {war['boat_attacks']}
 └ 🎯 Media: {war['avg_medals']}
@@ -344,7 +291,7 @@ def format_war_message(nome, username, war_data):
     message += f"""━━━━━━━━━━━━━━━━━━━━━━━
 📈 STATISTICHE TOTALI ({num_wars} War)
 
-⚔️ Deck Usati: {total_decks}/160
+⚔️ Deck Usati: {total_decks}
 🏅 🎯 Media: {avg_medals_global}
 🚢 Attacchi Navali Totali: {total_boats}"""
     
@@ -360,72 +307,33 @@ def format_fastwar_message(nome, username, war_data):
         return f"""⚔️ {nome} {username_display}
 🔗 {player_url}
 
-📊 MEDIE PER LEGA
+📊 STATISTICHE WAR
 
 ❌ Nessuna partecipazione registrata."""
+    
+    total_decks = 0
+    total_medals = 0
+    total_boats = 0
+    
+    for war in wars:
+        total_decks += war['decks_used']
+        total_medals += war['medals']
+        total_boats += war['boat_attacks']
+    
+    num_wars = len(wars)
+    avg_decks = round(total_decks / num_wars, 1) if num_wars > 0 else 0
+    avg_medals = round(total_medals / num_wars) if num_wars > 0 else 0
+    avg_boats = round(total_boats / num_wars, 1) if num_wars > 0 else 0
+    avg_medals_per_deck = round(total_medals / total_decks) if total_decks > 0 else 0
     
     message = f"""⚔️ {nome} {username_display}
 🔗 {player_url}
 
-📊 MEDIE PER LEGA
+📊 MEDIE ({num_wars} war)
 
-"""
+⚔️ Deck: {avg_decks} | 🏅 {avg_medals:,} | 🚢 {avg_boats} | ⭐ {avg_medals_per_deck}"""
     
-    league_stats = {}
-    
-    for war in wars:
-        league = get_league_name(war['clan_trophies'])
-        
-        if league not in league_stats:
-            league_stats[league] = {
-                'count': 0,
-                'total_decks': 0,
-                'total_medals': 0,
-                'total_boats': 0,
-                'total_avg': 0
-            }
-        
-        league_stats[league]['count'] += 1
-        league_stats[league]['total_decks'] += war['decks_used']
-        league_stats[league]['total_medals'] += war['medals']
-        league_stats[league]['total_boats'] += war['boat_attacks']
-        league_stats[league]['total_avg'] += war['avg_medals']
-    
-    league_order = [
-        "Lega Leggendaria 3",
-        "Lega Leggendaria 2",
-        "Lega Leggendaria 1",
-        "Lega Oro",
-        "Lega Argento",
-        "Lega Bronzo"
-    ]
-    
-    icons = {
-        "Lega Leggendaria 3": "🏆",
-        "Lega Leggendaria 2": "🥇",
-        "Lega Leggendaria 1": "🥈",
-        "Lega Oro": "🥉"
-    }
-    
-    league_keys = [l for l in league_order if l in league_stats]
-    
-    for i, league in enumerate(league_keys):
-        stats = league_stats[league]
-        count = stats['count']
-        avg_decks = round(stats['total_decks'] / count, 1)
-        avg_medals = round(stats['total_medals'] / count)
-        avg_boats = round(stats['total_boats'] / count, 1)
-        avg_avg = round(stats['total_avg'] / count)
-        
-        icon = icons.get(league, "📊")
-        connector = "└" if i == len(league_keys) - 1 else "├"
-        
-        message += f"""{icon} {league} ({count} war)
-{connector} ⚔️ Deck: {avg_decks}/16 | 🏅 {avg_medals:,} | 🚢 {avg_boats} | ⭐ {avg_avg}
-
-"""
-    
-    return message.rstrip()
+    return message
 
 async def war_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) != 1:
