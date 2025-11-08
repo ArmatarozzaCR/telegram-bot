@@ -157,54 +157,85 @@ async def scrape_war_stats(tag):
                 player_url = f"https://royaleapi.com/player/{tag}"
                 wars = []
                 
-                table_rows = soup.find_all('tr')
+                all_tables = soup.find_all('table')
+                logger.info(f"DEBUG: Trovate {len(all_tables)} tabelle nella pagina")
                 
-                logger.info(f"Trovate {len(table_rows)} righe nella pagina")
+                war_table = None
+                for idx, table in enumerate(all_tables):
+                    headers = table.find_all('th')
+                    header_texts = [h.get_text(strip=True).upper() for h in headers]
+                    logger.info(f"DEBUG: Tabella {idx} headers: {header_texts}")
+                    if any('DATE' in h or 'CLAN' in h or 'RANK' in h or 'R' in h for h in header_texts):
+                        war_table = table
+                        logger.info(f"✅ Trovata tabella war (tabella #{idx}) con headers: {header_texts}")
+                        break
                 
-                for row in table_rows[:10]:
+                if not war_table:
+                    logger.error(f"❌ Nessuna tabella war trovata per tag {tag}")
+                    return None
+                
+                table_rows = war_table.find_all('tr')[1:]
+                
+                logger.info(f"DEBUG: Trovate {len(table_rows)} righe war nella tabella")
+                
+                for row_idx, row in enumerate(table_rows[:10]):
                     cells = row.find_all('td')
                     
-                    if len(cells) < 8:
+                    logger.info(f"DEBUG: Riga {row_idx} ha {len(cells)} celle")
+                    
+                    if len(cells) < 5:
+                        logger.warning(f"DEBUG: Riga {row_idx} saltata (solo {len(cells)} celle)")
                         continue
                     
                     try:
                         war_info = {}
                         
-                        season_text = cells[0].get_text(strip=True)
-                        war_info['date'] = cells[1].get_text(strip=True)
+                        war_info['date'] = cells[1].get_text(strip=True) if len(cells) > 1 else "N/A"
                         
-                        rank_text = cells[2].get_text(strip=True)
-                        war_info['position'] = rank_text
+                        war_info['position'] = cells[2].get_text(strip=True) if len(cells) > 2 else "N/A"
                         
-                        clan_cell = cells[3]
-                        clan_link = clan_cell.find('a')
-                        if clan_link:
-                            war_info['clan_name'] = clan_link.get_text(strip=True)
-                            href = clan_link.get('href', '')
-                            if '/clan/' in href:
-                                war_info['clan_tag'] = href.split('/clan/')[-1].split('/')[0]
+                        if len(cells) > 3:
+                            clan_cell = cells[3]
+                            clan_link = clan_cell.find('a')
+                            if clan_link:
+                                war_info['clan_name'] = clan_link.get_text(strip=True)
+                                href = clan_link.get('href', '')
+                                if '/clan/' in href:
+                                    war_info['clan_tag'] = href.split('/clan/')[-1].split('/')[0]
+                                else:
+                                    war_info['clan_tag'] = None
                             else:
+                                war_info['clan_name'] = clan_cell.get_text(strip=True)
                                 war_info['clan_tag'] = None
                         else:
-                            war_info['clan_name'] = clan_cell.get_text(strip=True)
+                            war_info['clan_name'] = "Sconosciuto"
                             war_info['clan_tag'] = None
                         
-                        decks_text = cells[4].get_text(strip=True)
-                        try:
-                            war_info['decks_used'] = int(decks_text)
-                        except:
+                        if len(cells) > 4:
+                            decks_text = cells[4].get_text(strip=True)
+                            try:
+                                war_info['decks_used'] = int(decks_text)
+                            except:
+                                war_info['decks_used'] = 0
+                        else:
                             war_info['decks_used'] = 0
                         
-                        fame_text = cells[5].get_text(strip=True).replace(',', '').replace('.', '')
-                        try:
-                            war_info['medals'] = int(fame_text)
-                        except:
+                        if len(cells) > 5:
+                            fame_text = cells[5].get_text(strip=True).replace(',', '').replace('.', '')
+                            try:
+                                war_info['medals'] = int(fame_text)
+                            except:
+                                war_info['medals'] = 0
+                        else:
                             war_info['medals'] = 0
                         
-                        boat_text = cells[7].get_text(strip=True)
-                        try:
-                            war_info['boat_attacks'] = int(boat_text)
-                        except:
+                        if len(cells) > 7:
+                            boat_text = cells[7].get_text(strip=True)
+                            try:
+                                war_info['boat_attacks'] = int(boat_text)
+                            except:
+                                war_info['boat_attacks'] = 0
+                        else:
                             war_info['boat_attacks'] = 0
                         
                         if war_info['decks_used'] > 0:
@@ -212,14 +243,15 @@ async def scrape_war_stats(tag):
                         else:
                             war_info['avg_medals'] = 0
                         
+                        logger.info(f"DEBUG: War {row_idx} parsata: {war_info}")
                         wars.append(war_info)
                         
                     except Exception as e:
-                        logger.error(f"Errore parsing riga war: {e}")
+                        logger.error(f"Errore parsing riga war {row_idx}: {e}")
                         continue
                 
                 if not wars:
-                    logger.error(f"Nessuna war trovata per tag {tag}")
+                    logger.error(f"❌ Nessuna war trovata per tag {tag} dopo parsing")
                     return None
                 
                 logger.info(f"✅ Recuperate {len(wars)} war per tag {tag} tramite ScraperAPI")
