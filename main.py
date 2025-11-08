@@ -66,6 +66,7 @@ def carica_da_google_sheet():
     global dati_giocatori
     dati_giocatori = {}
     try:
+        logger.info("🔄 Inizio caricamento Google Sheet...")
         rows = sheet.get_all_records()
         for row in rows:
             try:
@@ -81,11 +82,10 @@ def carica_da_google_sheet():
                 "last_message_id": None,
                 "gestione_message_id": None,
             }
-        logger.info(f"Caricati {len(dati_giocatori)} giocatori da Google Sheet.")
+        logger.info(f"✅ Caricati {len(dati_giocatori)} giocatori da Google Sheet.")
     except Exception as e:
-        logger.error(f"Errore caricamento Google Sheet: {e}")
+        logger.error(f"❌ Errore caricamento Google Sheet: {e}")
 
-carica_da_google_sheet()
 
 def salva_su_google_sheet(user_id):
     dati = dati_giocatori.get(user_id)
@@ -905,6 +905,17 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=True)
+
+import threading
+
+def carica_sheets_background():
+    import time
+    time.sleep(1)
+    carica_da_google_sheet()
+
+thread = threading.Thread(target=carica_sheets_background, daemon=True)
+thread.start()
+logger.info("⚡ Bot si avvia mentre Google Sheets carica in background...")
 
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
