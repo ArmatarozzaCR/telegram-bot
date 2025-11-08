@@ -14,9 +14,6 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import logging
 import time
-import aiohttp
-from bs4 import BeautifulSoup
-import asyncio
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -151,6 +148,9 @@ def get_league_short(trophies):
         return "Bronzo"
 
 async def scrape_war_stats(tag):
+    import aiohttp
+    from bs4 import BeautifulSoup
+    import asyncio
     url = f"https://royaleapi.com/player/{tag}/riverrace"
     
     try:
