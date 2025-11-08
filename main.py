@@ -14,6 +14,7 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import logging
 import time
+import asyncio
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -66,7 +67,6 @@ def carica_da_google_sheet():
     global dati_giocatori
     dati_giocatori = {}
     try:
-        logger.info("🔄 Inizio caricamento Google Sheet...")
         rows = sheet.get_all_records()
         for row in rows:
             try:
@@ -82,9 +82,11 @@ def carica_da_google_sheet():
                 "last_message_id": None,
                 "gestione_message_id": None,
             }
-        logger.info(f"✅ Caricati {len(dati_giocatori)} giocatori da Google Sheet.")
+        logger.info(f"Caricati {len(dati_giocatori)} giocatori da Google Sheet.")
     except Exception as e:
-        logger.error(f"❌ Errore caricamento Google Sheet: {e}")
+        logger.error(f"Errore caricamento Google Sheet: {e}")
+
+carica_da_google_sheet()
 
 def salva_su_google_sheet(user_id):
     dati = dati_giocatori.get(user_id)
@@ -118,358 +120,22 @@ def salva_su_google_sheet(user_id):
     except Exception as e:
         logger.error(f"Errore salvataggio Google Sheet per user_id={user_id}: {e}")
 
-async def scrape_war_stats(tag):
-    import aiohttp
-    from bs4 import BeautifulSoup
-    import asyncio
-    
-    target_url = f"https://royaleapi.com/player/{tag}"
-    
-    scraper_api_key = os.getenv("SCRAPER_API_KEY")
-    
-    if not scraper_api_key:
-        logger.error("SCRAPER_API_KEY non configurata!")
-        return None
-    
-    api_url = f"http://api.scraperapi.com?api_key={scraper_api_key}&url={target_url}&render=true"
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            logger.info(f"Richiesta ScraperAPI per tag {tag}...")
-            
-            timeout = aiohttp.ClientTimeout(total=60)
-            
-            async with session.get(api_url, timeout=timeout) as response:
-                if response.status != 200:
-                    logger.error(f"ScraperAPI HTTP {response.status} per tag {tag}")
-                    return None
-                
-                html = await response.text()
-                
-                if len(html) < 1000:
-                    logger.error(f"HTML troppo corto da ScraperAPI ({len(html)} bytes)")
-                    return None
-                
-                logger.info(f"HTML ricevuto da ScraperAPI: {len(html)} bytes")
-                
-                soup = BeautifulSoup(html, 'html.parser')
-                
-                player_url = f"https://royaleapi.com/player/{tag}"
-                wars = []
-                
-                all_tables = soup.find_all('table')
-                logger.info(f"DEBUG: Trovate {len(all_tables)} tabelle nella pagina")
-                
-                war_table = None
-                for idx, table in enumerate(all_tables):
-                    headers = table.find_all('th')
-                    header_texts = [h.get_text(strip=True).upper() for h in headers]
-                    logger.info(f"DEBUG: Tabella {idx} headers: {header_texts}")
-                    if any('DATE' in h or 'CLAN' in h or 'RANK' in h or 'R' in h for h in header_texts):
-                        war_table = table
-                        logger.info(f"✅ Trovata tabella war (tabella #{idx}) con headers: {header_texts}")
-                        break
-                
-                if not war_table:
-                    logger.error(f"❌ Nessuna tabella war trovata per tag {tag}")
-                    return None
-                
-                table_rows = war_table.find_all('tr')[1:]
-                
-                logger.info(f"DEBUG: Trovate {len(table_rows)} righe war nella tabella")
-                
-                for row_idx, row in enumerate(table_rows[:10]):
-                    cells = row.find_all('td')
-                    
-                    logger.info(f"DEBUG: Riga {row_idx} ha {len(cells)} celle")
-                    
-                    if len(cells) < 5:
-                        logger.warning(f"DEBUG: Riga {row_idx} saltata (solo {len(cells)} celle)")
-                        continue
-                    
-                    try:
-                        war_info = {}
-                        
-                        war_info['date'] = cells[1].get_text(strip=True) if len(cells) > 1 else "N/A"
-                        
-                        war_info['position'] = cells[2].get_text(strip=True) if len(cells) > 2 else "N/A"
-                        
-                        if len(cells) > 3:
-                            clan_cell = cells[3]
-                            clan_link = clan_cell.find('a')
-                            if clan_link:
-                                war_info['clan_name'] = clan_link.get_text(strip=True)
-                                href = clan_link.get('href', '')
-                                if '/clan/' in href:
-                                    war_info['clan_tag'] = href.split('/clan/')[-1].split('/')[0]
-                                else:
-                                    war_info['clan_tag'] = None
-                            else:
-                                war_info['clan_name'] = clan_cell.get_text(strip=True)
-                                war_info['clan_tag'] = None
-                        else:
-                            war_info['clan_name'] = "Sconosciuto"
-                            war_info['clan_tag'] = None
-                        
-                        if len(cells) > 4:
-                            decks_text = cells[4].get_text(strip=True)
-                            try:
-                                war_info['decks_used'] = int(decks_text)
-                            except:
-                                war_info['decks_used'] = 0
-                        else:
-                            war_info['decks_used'] = 0
-                        
-                        if len(cells) > 5:
-                            fame_text = cells[5].get_text(strip=True).replace(',', '').replace('.', '')
-                            try:
-                                war_info['medals'] = int(fame_text)
-                            except:
-                                war_info['medals'] = 0
-                        else:
-                            war_info['medals'] = 0
-                        
-                        if len(cells) > 7:
-                            boat_text = cells[7].get_text(strip=True)
-                            try:
-                                war_info['boat_attacks'] = int(boat_text)
-                            except:
-                                war_info['boat_attacks'] = 0
-                        else:
-                            war_info['boat_attacks'] = 0
-                        
-                        if war_info['decks_used'] > 0:
-                            war_info['avg_medals'] = round(war_info['medals'] / war_info['decks_used'])
-                        else:
-                            war_info['avg_medals'] = 0
-                        
-                        logger.info(f"DEBUG: War {row_idx} parsata: {war_info}")
-                        wars.append(war_info)
-                        
-                    except Exception as e:
-                        logger.error(f"Errore parsing riga war {row_idx}: {e}")
-                        continue
-                
-                if not wars:
-                    logger.error(f"❌ Nessuna war trovata per tag {tag} dopo parsing")
-                    return None
-                
-                logger.info(f"✅ Recuperate {len(wars)} war per tag {tag} tramite ScraperAPI")
-                
-                return {
-                    'player_url': player_url,
-                    'wars': wars
-                }
-    
-    except asyncio.TimeoutError:
-        logger.error(f"Timeout ScraperAPI (60s) per tag {tag}")
-        return None
-    except Exception as e:
-        logger.error(f"Errore ScraperAPI per tag {tag}: {type(e).__name__}: {e}")
-        return None
-
-def format_war_message(nome, username, war_data):
-    player_url = war_data['player_url']
-    wars = war_data['wars']
-    
-    username_display = f"@{username}" if username else ""
-    
-    if not wars:
-        return f"""⚔️ WAR STATS - {nome} {username_display}
-🔗 {player_url}
-
-━━━━━━━━━━━━━━━━━━━━━━━
-📊 ULTIME 10 WAR
-
-❌ Nessuna partecipazione alle River Race registrata."""
-    
-    message = f"""⚔️ WAR STATS - {nome} {username_display}
-🔗 {player_url}
-
-━━━━━━━━━━━━━━━━━━━━━━━
-📊 ULTIME 10 WAR
-
-"""
-    
-    position_icons = {'1': '🥇', '2': '🥈', '3': '🥉'}
-    
-    total_decks = 0
-    total_medals = 0
-    total_boats = 0
-    
-    for idx, war in enumerate(wars, 1):
-        pos = war['position']
-        icon = position_icons.get(pos, '🏅')
-        
-        clan_link = f"https://royaleapi.com/clan/{war['clan_tag']}" if war['clan_tag'] else ""
-        
-        total_decks += war['decks_used']
-        total_medals += war['medals']
-        total_boats += war['boat_attacks']
-        
-        message += f"""{icon} War #{idx} - {war['date']}
-🏰 Clan: {war['clan_name']}
-🔗 {clan_link}
-├ ⚔️ Deck Usati: {war['decks_used']}
-├ 🏅 Medaglie: {war['medals']:,}
-├ 🚢 Attacchi Navali: {war['boat_attacks']}
-└ 🎯 Media: {war['avg_medals']}
-
-"""
-    
-    num_wars = len(wars)
-    avg_medals_global = round(total_medals / total_decks) if total_decks > 0 else 0
-    
-    message += f"""━━━━━━━━━━━━━━━━━━━━━━━
-📈 STATISTICHE TOTALI ({num_wars} War)
-
-⚔️ Deck Usati: {total_decks}
-🏅 🎯 Media: {avg_medals_global}
-🚢 Attacchi Navali Totali: {total_boats}"""
-    
-    return message
-
-def format_fastwar_message(nome, username, war_data):
-    player_url = war_data['player_url']
-    wars = war_data['wars']
-    
-    username_display = f"@{username}" if username else ""
-    
-    if not wars:
-        return f"""⚔️ {nome} {username_display}
-🔗 {player_url}
-
-📊 STATISTICHE WAR
-
-❌ Nessuna partecipazione registrata."""
-    
-    total_decks = 0
-    total_medals = 0
-    total_boats = 0
-    
-    for war in wars:
-        total_decks += war['decks_used']
-        total_medals += war['medals']
-        total_boats += war['boat_attacks']
-    
-    num_wars = len(wars)
-    avg_decks = round(total_decks / num_wars, 1) if num_wars > 0 else 0
-    avg_medals = round(total_medals / num_wars) if num_wars > 0 else 0
-    avg_boats = round(total_boats / num_wars, 1) if num_wars > 0 else 0
-    avg_medals_per_deck = round(total_medals / total_decks) if total_decks > 0 else 0
-    
-    message = f"""⚔️ {nome} {username_display}
-🔗 {player_url}
-
-📊 MEDIE ({num_wars} war)
-
-⚔️ Deck: {avg_decks} | 🏅 {avg_medals:,} | 🚢 {avg_boats} | ⭐ {avg_medals_per_deck}"""
-    
-    return message
-
-async def war_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or len(context.args) != 1:
-        await update.message.reply_text("Uso corretto: /war @username oppure /war #TAG")
-        return
-    
-    arg = context.args[0]
-    tag = None
-    nome = None
-    username = None
-    
-    if arg.startswith("#"):
-        tag = arg[1:].upper()
-        nome = "Giocatore"
-        username = None
-    elif arg.startswith("@"):
-        username_arg = arg[1:]
-        user_id = None
-        for uid, dati in dati_giocatori.items():
-            if dati.get("username", "").lower() == username_arg.lower():
-                user_id = uid
-                break
-        if user_id:
-            tag = dati_giocatori[user_id].get("tag")
-            nome = dati_giocatori[user_id].get("nome", "Giocatore")
-            username = dati_giocatori[user_id].get("username")
-        else:
-            await update.message.reply_text(f"❌ Utente @{username_arg} non trovato nel database.")
-            return
-    else:
-        await update.message.reply_text("Uso corretto: /war @username oppure /war #TAG")
-        return
-    
-    if not tag:
-        await update.message.reply_text("❌ Tag non trovato per questo utente.")
-        return
-    
-    await update.message.reply_text("⏳ Recupero dati da RoyaleAPI...")
-    
-    try:
-        war_data = await scrape_war_stats(tag)
-        
-        if not war_data or not war_data.get('wars'):
-            await update.message.reply_text(f"⚠️ Impossibile recuperare i dati da RoyaleAPI.\n🔗 https://royaleapi.com/player/{tag}")
-            return
-        
-        message = format_war_message(nome, username, war_data)
-        await update.message.reply_text(message, disable_web_page_preview=True)
-        
-    except Exception as e:
-        logger.error(f"Errore comando /war per tag {tag}: {e}")
-        await update.message.reply_text(f"⚠️ Errore durante il recupero dei dati.\n🔗 https://royaleapi.com/player/{tag}")
-
-async def fastwar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args or len(context.args) != 1:
-        await update.message.reply_text("Uso corretto: /fastwar @username oppure /fastwar #TAG")
-        return
-    
-    arg = context.args[0]
-    tag = None
-    nome = None
-    username = None
-    
-    if arg.startswith("#"):
-        tag = arg[1:].upper()
-        nome = "Giocatore"
-        username = None
-    elif arg.startswith("@"):
-        username_arg = arg[1:]
-        user_id = None
-        for uid, dati in dati_giocatori.items():
-            if dati.get("username", "").lower() == username_arg.lower():
-                user_id = uid
-                break
-        if user_id:
-            tag = dati_giocatori[user_id].get("tag")
-            nome = dati_giocatori[user_id].get("nome", "Giocatore")
-            username = dati_giocatori[user_id].get("username")
-        else:
-            await update.message.reply_text(f"❌ Utente @{username_arg} non trovato nel database.")
-            return
-    else:
-        await update.message.reply_text("Uso corretto: /fastwar @username oppure /fastwar #TAG")
-        return
-    
-    if not tag:
-        await update.message.reply_text("❌ Tag non trovato per questo utente.")
-        return
-    
-    await update.message.reply_text("⏳ Recupero dati da RoyaleAPI...")
-    
-    try:
-        war_data = await scrape_war_stats(tag)
-        
-        if not war_data or not war_data.get('wars'):
-            await update.message.reply_text(f"⚠️ Impossibile recuperare i dati da RoyaleAPI.\n🔗 https://royaleapi.com/player/{tag}")
-            return
-        
-        message = format_fastwar_message(nome, username, war_data)
-        await update.message.reply_text(message, disable_web_page_preview=True)
-        
-    except Exception as e:
-        logger.error(f"Errore comando /fastwar per tag {tag}: {e}")
-        await update.message.reply_text(f"⚠️ Errore durante il recupero dei dati.\n🔗 https://royaleapi.com/player/{tag}")
+async def sblocca_utente_con_retry(context, user_id, max_tentativi=3):
+    for tentativo in range(1, max_tentativi + 1):
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=reclutamento_group_id,
+                user_id=user_id,
+                permissions=permessi_sbloccati
+            )
+            logger.info(f"✅ Utente {user_id} sbloccato con successo (tentativo {tentativo})")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Tentativo {tentativo} fallito per sbloccare {user_id}: {e}")
+            if tentativo < max_tentativi:
+                await asyncio.sleep(1)
+    logger.error(f"❌ IMPOSSIBILE sbloccare utente {user_id} dopo {max_tentativi} tentativi")
+    return False
 
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
@@ -507,7 +173,7 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if context.args and context.args[0] == "join" and user_id in utenti_in_attesa:
-        await update.message.reply_text("Benvenuto, mandami il tuo tag in game che inizia con # e prosegui il reclutamento nel gruppo.\n\n Welcome, send me your in-game tag starting with # and continue the recruitment process in the group.")
+        await update.message.reply_text("Benvenuto, mandami il tuo tag in game che inizia con # e prosegui il reclutamento nel gruppo.\n\nWelcome, send me your in-game tag starting with # and continue the recruitment process in the group.")
     else:
         await update.message.reply_text("Benvenuto! Usa il gruppo @reclutarozzi per unirti e iniziare il reclutamento.\n\nWelcome! Use the group @reclutarozzi to join and start recruitment.")
 
@@ -540,6 +206,13 @@ async def invia_resoconto(user_id, context):
         messaggio += f"\n\n⚠️ Attenzione: il tag in game è stato aggiornato da #{dati['prev_tag']} a #{tag}."
 
     dati["prev_tag"] = tag
+
+    old_msg_id = dati.get("last_message_id")
+    if old_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=group_id, message_id=old_msg_id)
+        except Exception as e:
+            logger.warning(f"Impossibile eliminare messaggio reclutamento {old_msg_id}: {e}")
 
     try:
         msg = await context.bot.send_message(chat_id=group_id, text=messaggio)
@@ -645,12 +318,15 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             await invia_resoconto(user_id, context)
             await invia_resoconto_gestione(user_id, context)
-            await context.bot.restrict_chat_member(
-                chat_id=reclutamento_group_id,
-                user_id=user_id,
-                permissions=permessi_sbloccati
-            )
-            logger.info(f"Utente {user_id} sbloccato nel gruppo reclutamento")
+            
+            sbloccato = await sblocca_utente_con_retry(context, user_id, max_tentativi=3)
+            
+            if sbloccato:
+                logger.info(f"✅ SUCCESSO: Utente {user_id} completamente sbloccato")
+            else:
+                logger.error(f"❌ FALLIMENTO: Impossibile sbloccare utente {user_id}")
+                await update.message.reply_text("⚠️ Si è verificato un problema con lo sblocco. Contatta un admin.")
+                
         except Exception as e:
             logger.error(f"Errore durante ricezione tag privato per user_id={user_id}: {e}")
     else:
@@ -665,12 +341,6 @@ async def monitora_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nuovo_username = user.username
         if vecchio_username != nuovo_username:
             dati_giocatori[user.id]["username"] = nuovo_username
-            msg_id = dati_giocatori[user.id].get("last_message_id")
-            if msg_id:
-                try:
-                    await context.bot.delete_message(chat_id=reclutamento_group_id, message_id=msg_id)
-                except Exception as e:
-                    logger.warning(f"Impossibile eliminare messaggio {msg_id}: {e}")
             await invia_resoconto(user.id, context)
             await invia_resoconto_gestione(user.id, context)
 
@@ -727,9 +397,9 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id is not None:
         dati_giocatori[user_id]["tag"] = tag_arg
         try:
-            salva_su_google_sheet(user_id)
             await invia_resoconto(user_id, context)
             await invia_resoconto_gestione(user_id, context)
+            salva_su_google_sheet(user_id)
             await update.message.reply_text(f"✅ Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
         except Exception as e:
             logger.error(f"Errore updatetag per user_id={user_id}: {e}")
@@ -749,9 +419,9 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             del utenti_in_attesa[user_id]
             try:
-                salva_su_google_sheet(user_id)
                 await invia_resoconto(user_id, context)
                 await invia_resoconto_gestione(user_id, context)
+                salva_su_google_sheet(user_id)
                 await update.message.reply_text(f"✅ Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
             except Exception as e:
                 logger.error(f"Errore updatetag per user_id={user_id}: {e}")
@@ -768,9 +438,9 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "nel_benvenuto": False
     }
     try:
-        salva_su_google_sheet(fake_user_id)
         await invia_resoconto(fake_user_id, context)
         await invia_resoconto_gestione(fake_user_id, context)
+        salva_su_google_sheet(fake_user_id)
         await update.message.reply_text(f"✅ Nuovo profilo creato per @{username_arg} con tag #{tag_arg} e resoconti rigenerati.")
     except Exception as e:
         logger.error(f"Errore updatetag per nuovo utente: {e}")
@@ -870,25 +540,12 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=True)
 
-import threading
-
-def carica_sheets_background():
-    import time
-    time.sleep(1)
-    carica_da_google_sheet()
-
-thread = threading.Thread(target=carica_sheets_background, daemon=True)
-thread.start()
-logger.info("⚡ Bot si avvia mentre Google Sheets carica in background...")
-
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
 app.add_handler(CommandHandler("info", info, filters.Chat(reclutamento_group_id)))
-app.add_handler(CommandHandler("war", war_command))
-app.add_handler(CommandHandler("fastwar", fastwar_command))
 app.add_handler(CommandHandler("armata", armata_command))
 app.add_handler(CommandHandler("magnamm", magnamm_command))
 app.add_handler(CommandHandler("tori", tori_command))
