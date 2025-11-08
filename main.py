@@ -14,6 +14,9 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import logging
 import time
+import aiohttp
+from bs4 import BeautifulSoup
+import asyncio
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -118,6 +121,391 @@ def salva_su_google_sheet(user_id):
         logger.info(f"Dati salvati su Google Sheet per user_id={user_id}")
     except Exception as e:
         logger.error(f"Errore salvataggio Google Sheet per user_id={user_id}: {e}")
+
+def get_league_name(trophies):
+    if trophies >= 5000:
+        return "Lega Leggendaria 3"
+    elif trophies >= 4000:
+        return "Lega Leggendaria 2"
+    elif trophies >= 3000:
+        return "Lega Leggendaria 1"
+    elif trophies >= 1500:
+        return "Lega Oro"
+    elif trophies >= 600:
+        return "Lega Argento"
+    else:
+        return "Lega Bronzo"
+
+def get_league_short(trophies):
+    if trophies >= 5000:
+        return "Leg 3"
+    elif trophies >= 4000:
+        return "Leg 2"
+    elif trophies >= 3000:
+        return "Leg 1"
+    elif trophies >= 1500:
+        return "Oro"
+    elif trophies >= 600:
+        return "Argento"
+    else:
+        return "Bronzo"
+
+async def scrape_war_stats(tag):
+    url = f"https://royaleapi.com/player/{tag}/riverrace"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            async with session.get(url, timeout=20, headers=headers) as response:
+                if response.status != 200:
+                    logger.error(f"HTTP {response.status} per tag {tag}")
+                    return None
+                
+                html = await response.text()
+                soup = BeautifulSoup(html, 'html.parser')
+                
+                player_url = f"https://royaleapi.com/player/{tag}"
+                clan_name = "Sconosciuto"
+                clan_tag = None
+                
+                wars = []
+                
+                war_items = soup.find_all('div', class_='item')[:10]
+                
+                for war_item in war_items:
+                    war_info = {}
+                    
+                    date_div = war_item.find('div', class_='date')
+                    war_info['date'] = date_div.get_text(strip=True) if date_div else "N/A"
+                    
+                    position_div = war_item.find('div', class_='position')
+                    if position_div:
+                        pos_text = position_div.get_text(strip=True).replace('°', '').replace('st', '').replace('nd', '').replace('rd', '').replace('th', '').strip()
+                        war_info['position'] = pos_text
+                    else:
+                        war_info['position'] = "N/A"
+                    
+                    clan_div = war_item.find('div', class_='clan_name')
+                    if clan_div:
+                        war_info['clan_name'] = clan_div.get_text(strip=True)
+                        clan_link = clan_div.find('a')
+                        if clan_link and clan_link.get('href'):
+                            href = clan_link.get('href')
+                            if '/clan/' in href:
+                                war_info['clan_tag'] = href.split('/clan/')[-1].split('/')[0]
+                            else:
+                                war_info['clan_tag'] = None
+                        else:
+                            war_info['clan_tag'] = None
+                    else:
+                        war_info['clan_name'] = "Sconosciuto"
+                        war_info['clan_tag'] = None
+                    
+                    trophies_div = war_item.find('div', class_='clan_score')
+                    if trophies_div:
+                        trophy_text = trophies_div.get_text(strip=True).replace(',', '').replace('.', '')
+                        try:
+                            war_info['clan_trophies'] = int(trophy_text)
+                        except:
+                            war_info['clan_trophies'] = 0
+                    else:
+                        war_info['clan_trophies'] = 0
+                    
+                    decks_div = war_item.find('div', class_='decks_used')
+                    if decks_div:
+                        decks_text = decks_div.get_text(strip=True)
+                        try:
+                            used = int(decks_text.split('/')[0])
+                            war_info['decks_used'] = used
+                        except:
+                            war_info['decks_used'] = 0
+                    else:
+                        war_info['decks_used'] = 0
+                    
+                    fame_div = war_item.find('div', class_='fame')
+                    if fame_div:
+                        fame_text = fame_div.get_text(strip=True).replace(',', '').replace('.', '')
+                        try:
+                            war_info['medals'] = int(fame_text)
+                        except:
+                            war_info['medals'] = 0
+                    else:
+                        war_info['medals'] = 0
+                    
+                    boat_div = war_item.find('div', class_='boat_attacks')
+                    if boat_div:
+                        boat_text = boat_div.get_text(strip=True)
+                        try:
+                            war_info['boat_attacks'] = int(boat_text)
+                        except:
+                            war_info['boat_attacks'] = 0
+                    else:
+                        war_info['boat_attacks'] = 0
+                    
+                    if war_info['decks_used'] > 0:
+                        war_info['avg_medals'] = round(war_info['medals'] / war_info['decks_used'])
+                    else:
+                        war_info['avg_medals'] = 0
+                    
+                    wars.append(war_info)
+                
+                return {
+                    'player_url': player_url,
+                    'wars': wars
+                }
+    
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout scraping war stats per tag {tag}")
+        return None
+    except Exception as e:
+        logger.error(f"Errore scraping war stats per tag {tag}: {e}")
+        return None
+
+def format_war_message(nome, username, war_data):
+    player_url = war_data['player_url']
+    wars = war_data['wars']
+    
+    username_display = f"@{username}" if username else ""
+    
+    if not wars:
+        return f"""⚔️ WAR STATS - {nome} {username_display}
+🔗 {player_url}
+
+━━━━━━━━━━━━━━━━━━━━━━━
+📊 ULTIME 10 WAR
+
+❌ Nessuna partecipazione alle River Race registrata."""
+    
+    message = f"""⚔️ WAR STATS - {nome} {username_display}
+🔗 {player_url}
+
+━━━━━━━━━━━━━━━━━━━━━━━
+📊 ULTIME 10 WAR
+
+"""
+    
+    position_icons = {'1': '🥇', '2': '🥈', '3': '🥉'}
+    
+    total_decks = 0
+    total_medals = 0
+    total_boats = 0
+    
+    for idx, war in enumerate(wars, 1):
+        pos = war['position']
+        icon = position_icons.get(pos, '🏅')
+        
+        clan_link = f"https://royaleapi.com/clan/{war['clan_tag']}" if war['clan_tag'] else ""
+        league = get_league_name(war['clan_trophies'])
+        
+        total_decks += war['decks_used']
+        total_medals += war['medals']
+        total_boats += war['boat_attacks']
+        
+        message += f"""{icon} War #{idx} - {war['date']}
+🏰 Clan: {war['clan_name']}
+🔗 {clan_link}
+├ 🏆 Lega Clan: {league}
+├ ⚔️ Deck Usati: {war['decks_used']} su 16
+├ 🏅 Medaglie: {war['medals']:,}
+├ 🚢 Attacchi Navali: {war['boat_attacks']}
+└ 🎯 Media: {war['avg_medals']}
+
+"""
+    
+    num_wars = len(wars)
+    avg_medals_global = round(total_medals / total_decks) if total_decks > 0 else 0
+    
+    message += f"""━━━━━━━━━━━━━━━━━━━━━━━
+📈 STATISTICHE TOTALI ({num_wars} War)
+
+⚔️ Deck Usati: {total_decks}/160
+🏅 🎯 Media: {avg_medals_global}
+🚢 Attacchi Navali Totali: {total_boats}"""
+    
+    return message
+
+def format_fastwar_message(nome, username, war_data):
+    player_url = war_data['player_url']
+    wars = war_data['wars']
+    
+    username_display = f"@{username}" if username else ""
+    
+    if not wars:
+        return f"""⚔️ {nome} {username_display}
+🔗 {player_url}
+
+📊 MEDIE PER LEGA
+
+❌ Nessuna partecipazione registrata."""
+    
+    message = f"""⚔️ {nome} {username_display}
+🔗 {player_url}
+
+📊 MEDIE PER LEGA
+
+"""
+    
+    league_stats = {}
+    
+    for war in wars:
+        league = get_league_name(war['clan_trophies'])
+        
+        if league not in league_stats:
+            league_stats[league] = {
+                'count': 0,
+                'total_decks': 0,
+                'total_medals': 0,
+                'total_boats': 0,
+                'total_avg': 0
+            }
+        
+        league_stats[league]['count'] += 1
+        league_stats[league]['total_decks'] += war['decks_used']
+        league_stats[league]['total_medals'] += war['medals']
+        league_stats[league]['total_boats'] += war['boat_attacks']
+        league_stats[league]['total_avg'] += war['avg_medals']
+    
+    league_order = [
+        "Lega Leggendaria 3",
+        "Lega Leggendaria 2",
+        "Lega Leggendaria 1",
+        "Lega Oro",
+        "Lega Argento",
+        "Lega Bronzo"
+    ]
+    
+    icons = {
+        "Lega Leggendaria 3": "🏆",
+        "Lega Leggendaria 2": "🥇",
+        "Lega Leggendaria 1": "🥈",
+        "Lega Oro": "🥉"
+    }
+    
+    league_keys = [l for l in league_order if l in league_stats]
+    
+    for i, league in enumerate(league_keys):
+        stats = league_stats[league]
+        count = stats['count']
+        avg_decks = round(stats['total_decks'] / count, 1)
+        avg_medals = round(stats['total_medals'] / count)
+        avg_boats = round(stats['total_boats'] / count, 1)
+        avg_avg = round(stats['total_avg'] / count)
+        
+        icon = icons.get(league, "📊")
+        connector = "└" if i == len(league_keys) - 1 else "├"
+        
+        message += f"""{icon} {league} ({count} war)
+{connector} ⚔️ Deck: {avg_decks}/16 | 🏅 {avg_medals:,} | 🚢 {avg_boats} | ⭐ {avg_avg}
+
+"""
+    
+    return message.rstrip()
+
+async def war_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) != 1:
+        await update.message.reply_text("Uso corretto: /war @username oppure /war #TAG")
+        return
+    
+    arg = context.args[0]
+    tag = None
+    nome = None
+    username = None
+    
+    if arg.startswith("#"):
+        tag = arg[1:].upper()
+        nome = "Giocatore"
+        username = None
+    elif arg.startswith("@"):
+        username_arg = arg[1:]
+        user_id = None
+        for uid, dati in dati_giocatori.items():
+            if dati.get("username", "").lower() == username_arg.lower():
+                user_id = uid
+                break
+        if user_id:
+            tag = dati_giocatori[user_id].get("tag")
+            nome = dati_giocatori[user_id].get("nome", "Giocatore")
+            username = dati_giocatori[user_id].get("username")
+        else:
+            await update.message.reply_text(f"❌ Utente @{username_arg} non trovato nel database.")
+            return
+    else:
+        await update.message.reply_text("Uso corretto: /war @username oppure /war #TAG")
+        return
+    
+    if not tag:
+        await update.message.reply_text("❌ Tag non trovato per questo utente.")
+        return
+    
+    await update.message.reply_text("⏳ Recupero dati da RoyaleAPI...")
+    
+    try:
+        war_data = await scrape_war_stats(tag)
+        
+        if not war_data or not war_data.get('wars'):
+            await update.message.reply_text(f"⚠️ Impossibile recuperare i dati da RoyaleAPI.\n🔗 https://royaleapi.com/player/{tag}")
+            return
+        
+        message = format_war_message(nome, username, war_data)
+        await update.message.reply_text(message, disable_web_page_preview=True)
+        
+    except Exception as e:
+        logger.error(f"Errore comando /war per tag {tag}: {e}")
+        await update.message.reply_text(f"⚠️ Errore durante il recupero dei dati.\n🔗 https://royaleapi.com/player/{tag}")
+
+async def fastwar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) != 1:
+        await update.message.reply_text("Uso corretto: /fastwar @username oppure /fastwar #TAG")
+        return
+    
+    arg = context.args[0]
+    tag = None
+    nome = None
+    username = None
+    
+    if arg.startswith("#"):
+        tag = arg[1:].upper()
+        nome = "Giocatore"
+        username = None
+    elif arg.startswith("@"):
+        username_arg = arg[1:]
+        user_id = None
+        for uid, dati in dati_giocatori.items():
+            if dati.get("username", "").lower() == username_arg.lower():
+                user_id = uid
+                break
+        if user_id:
+            tag = dati_giocatori[user_id].get("tag")
+            nome = dati_giocatori[user_id].get("nome", "Giocatore")
+            username = dati_giocatori[user_id].get("username")
+        else:
+            await update.message.reply_text(f"❌ Utente @{username_arg} non trovato nel database.")
+            return
+    else:
+        await update.message.reply_text("Uso corretto: /fastwar @username oppure /fastwar #TAG")
+        return
+    
+    if not tag:
+        await update.message.reply_text("❌ Tag non trovato per questo utente.")
+        return
+    
+    await update.message.reply_text("⏳ Recupero dati da RoyaleAPI...")
+    
+    try:
+        war_data = await scrape_war_stats(tag)
+        
+        if not war_data or not war_data.get('wars'):
+            await update.message.reply_text(f"⚠️ Impossibile recuperare i dati da RoyaleAPI.\n🔗 https://royaleapi.com/player/{tag}")
+            return
+        
+        message = format_fastwar_message(nome, username, war_data)
+        await update.message.reply_text(message, disable_web_page_preview=True)
+        
+    except Exception as e:
+        logger.error(f"Errore comando /fastwar per tag {tag}: {e}")
+        await update.message.reply_text(f"⚠️ Errore durante il recupero dei dati.\n🔗 https://royaleapi.com/player/{tag}")
 
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for member in update.message.new_chat_members:
@@ -526,6 +914,8 @@ app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filte
 app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), monitora_username))
 app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
 app.add_handler(CommandHandler("info", info, filters.Chat(reclutamento_group_id)))
+app.add_handler(CommandHandler("war", war_command))
+app.add_handler(CommandHandler("fastwar", fastwar_command))
 app.add_handler(CommandHandler("armata", armata_command))
 app.add_handler(CommandHandler("magnamm", magnamm_command))
 app.add_handler(CommandHandler("tori", tori_command))
