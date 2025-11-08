@@ -86,7 +86,6 @@ def carica_da_google_sheet():
     except Exception as e:
         logger.error(f"❌ Errore caricamento Google Sheet: {e}")
 
-
 def salva_su_google_sheet(user_id):
     dati = dati_giocatori.get(user_id)
     if not dati:
@@ -151,28 +150,51 @@ async def scrape_war_stats(tag):
     import aiohttp
     from bs4 import BeautifulSoup
     import asyncio
-    url = f"https://royaleapi.com/player/{tag}/riverrace"
+    import urllib.parse
+    
+    target_url = f"https://royaleapi.com/player/{tag}/riverrace"
+    
+    scraper_api_key = os.getenv("SCRAPER_API_KEY")
+    
+    if not scraper_api_key:
+        logger.error("SCRAPER_API_KEY non configurata!")
+        return None
+    
+    encoded_url = urllib.parse.quote(target_url)
+    
+    api_url = f"http://api.scraperapi.com?api_key={scraper_api_key}&url={encoded_url}&render=true"
     
     try:
         async with aiohttp.ClientSession() as session:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            async with session.get(url, timeout=20, headers=headers) as response:
+            logger.info(f"Richiesta ScraperAPI per tag {tag}...")
+            
+            timeout = aiohttp.ClientTimeout(total=60)
+            
+            async with session.get(api_url, timeout=timeout) as response:
                 if response.status != 200:
-                    logger.error(f"HTTP {response.status} per tag {tag}")
+                    logger.error(f"ScraperAPI HTTP {response.status} per tag {tag}")
                     return None
                 
                 html = await response.text()
+                
+                if len(html) < 1000:
+                    logger.error(f"HTML troppo corto da ScraperAPI ({len(html)} bytes)")
+                    return None
+                
+                logger.info(f"HTML ricevuto da ScraperAPI: {len(html)} bytes")
+                
                 soup = BeautifulSoup(html, 'html.parser')
                 
                 player_url = f"https://royaleapi.com/player/{tag}"
-                clan_name = "Sconosciuto"
-                clan_tag = None
-                
                 wars = []
                 
                 war_items = soup.find_all('div', class_='item')[:10]
+                
+                if not war_items:
+                    logger.error(f"Nessun elemento .item trovato per tag {tag}")
+                    return None
+                
+                logger.info(f"Trovati {len(war_items)} elementi war")
                 
                 for war_item in war_items:
                     war_info = {}
@@ -251,16 +273,18 @@ async def scrape_war_stats(tag):
                     
                     wars.append(war_info)
                 
+                logger.info(f"✅ Recuperate {len(wars)} war per tag {tag} tramite ScraperAPI")
+                
                 return {
                     'player_url': player_url,
                     'wars': wars
                 }
     
     except asyncio.TimeoutError:
-        logger.error(f"Timeout scraping war stats per tag {tag}")
+        logger.error(f"Timeout ScraperAPI (60s) per tag {tag}")
         return None
     except Exception as e:
-        logger.error(f"Errore scraping war stats per tag {tag}: {e}")
+        logger.error(f"Errore ScraperAPI per tag {tag}: {type(e).__name__}: {e}")
         return None
 
 def format_war_message(nome, username, war_data):
