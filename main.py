@@ -538,53 +538,97 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     
-    # CONTROLLO GRUPPO E TOPIC
-    is_correct_topic = update.message.message_thread_id == war_topic_id
+    # 1. CONTROLLO GRUPPO E TOPIC
+    current_topic = update.message.message_thread_id
+    # Converte entrambi in stringa per sicurezza confronto
+    is_correct_topic = (str(current_topic) == str(war_topic_id))
+    
     if chat.id != war_group_id or not is_correct_topic:
         return 
 
+    # 2. CONTROLLO ADMIN CHE ESEGUE IL COMANDO
+    sender_is_creator = False
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         if member.status not in ['administrator', 'creator']:
             return
+        if member.status == 'creator':
+            sender_is_creator = True
     except:
         return
 
     target_user = None
+    
+    # 3. IDENTIFICA IL BERSAGLIO
     if update.message.reply_to_message:
         target_user = update.message.reply_to_message.from_user
     elif context.args:
         username_input = context.args[0].replace("@", "")
         for uid, dati in dati_giocatori.items():
-            if dati.get("username", "").lower() == username_input.lower():
-                target_user = type('obj', (object,), {'id': uid, 'full_name': dati.get("nome"), 'username': dati.get("username"), 'is_bot': False})
+            if str(dati.get("username", "")).lower() == username_input.lower():
+                # Creiamo oggetto FAKE sicuro (con is_bot = False esplicito)
+                target_user = type('User', (object,), {
+                    'id': uid, 
+                    'full_name': dati.get("nome", "Utente"), 
+                    'username': dati.get("username", ""), 
+                    'is_bot': False 
+                })
                 break
     
     if not target_user:
-        await update.message.reply_text("⚠️ Rispondi a un utente o scrivi /warn @username")
+        await update.message.reply_text("⚠️ Rispondi a un utente o scrivi /warn @username (l'utente deve essere registrato nel bot).")
         return
-
+    
+    # 4. CONTROLLO BERSAGLIO (Anti-Admin / Anti-Bot)
     try:
-        target_member = await context.bot.get_chat_member(chat.id, target_user.id)
-        if target_member.status in ['administrator', 'creator'] or target_user.is_bot:
-            await update.message.reply_text("❌ Non puoi ammonire un admin o un bot.")
-            return
-    except:
-        pass
+        # Se l'oggetto è fake, non possiamo fare get_chat_member se l'utente è uscito
+        # Usiamo getattr per evitare crash se target_user è l'oggetto fake
+        is_bot_check = getattr(target_user, 'is_bot', False)
+        
+        if is_bot_check:
+             await update.message.reply_text("❌ Non puoi ammonire un bot.")
+             return
 
+        # Tentiamo di leggere lo status reale
+        target_member = await context.bot.get_chat_member(chat.id, target_user.id)
+        
+        # LOGICA: Se chi comanda è CREATOR, può ammonire chiunque tranne se stesso.
+        # Se chi comanda è ADMIN, non può ammonire altri ADMIN o CREATOR.
+        
+        if str(target_user.id) == str(user.id):
+            await update.message.reply_text("❌ Non puoi ammonire te stesso.")
+            return
+
+        if not sender_is_creator:
+            if target_member.status in ['administrator', 'creator']:
+                await update.message.reply_text(f"❌ Non puoi ammonire un {target_member.status}.")
+                return
+
+    except BadRequest:
+        # L'utente potrebbe non essere più nel gruppo. Procediamo comunque col warn nel DB.
+        pass
+    except Exception as e:
+        logger.error(f"Errore verifica target warn: {e}")
+
+    # 5. ESECUZIONE WARN
     oggi = datetime.now()
     scadenza = oggi + timedelta(days=60)
     
     pulisci_warn_scaduti()
     
-    warn_sheet.append_row([
-        str(target_user.id),
-        target_user.username or target_user.full_name,
-        user.username or "Admin",
-        oggi.strftime("%Y-%m-%d"),
-        scadenza.strftime("%Y-%m-%d"),
-        1
-    ])
+    try:
+        warn_sheet.append_row([
+            str(target_user.id),
+            getattr(target_user, 'username', 'Nessuno') or getattr(target_user, 'full_name', 'Sconosciuto'),
+            user.username or "Admin",
+            oggi.strftime("%Y-%m-%d"),
+            scadenza.strftime("%Y-%m-%d"),
+            1
+        ])
+    except Exception as e:
+        await update.message.reply_text("❌ Errore Google Sheets.")
+        logger.error(f"GSheet error: {e}")
+        return
     
     rows = warn_sheet.get_all_records()
     count = 0
@@ -592,7 +636,10 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if str(row.get("user_id")) == str(target_user.id):
             count += 1
     
-    msg_text = f"🛡 <b>Utente Ammonito</b>\n\n👤 {target_user.full_name} (@{target_user.username})\n⚠️ Ammonizione: {count}° (scade tra 60gg)"
+    t_name = getattr(target_user, 'full_name', 'Utente')
+    t_user = getattr(target_user, 'username', 'nessuno')
+    
+    msg_text = f"🛡 <b>Utente Ammonito</b>\n\n👤 {t_name} (@{t_user})\n⚠️ Ammonizione: {count}° (scade tra 60gg)"
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Annulla", callback_data=f"unwarn_{target_user.id}")]
@@ -605,8 +652,8 @@ async def unwarn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     user = query.from_user
-    # CONTROLLO GRUPPO E TOPIC (nel caso di pulsanti il messaggio esiste già, ma controlliamo per sicurezza)
-    is_correct_topic = query.message.message_thread_id == war_topic_id
+    # CONTROLLO GRUPPO E TOPIC
+    is_correct_topic = (str(query.message.message_thread_id) == str(war_topic_id))
     if query.message.chat.id != war_group_id or not is_correct_topic:
         return
         
@@ -637,7 +684,9 @@ async def unwarn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def elenco_warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # CONTROLLO GRUPPO E TOPIC
-    is_correct_topic = update.message.message_thread_id == war_topic_id
+    current_topic = update.message.message_thread_id
+    is_correct_topic = (str(current_topic) == str(war_topic_id))
+    
     if update.effective_chat.id != war_group_id or not is_correct_topic:
         return
 
