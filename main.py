@@ -1,8 +1,9 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions, CallbackQuery
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -11,7 +12,7 @@ import os
 import re
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import time
 import asyncio
@@ -31,6 +32,15 @@ SPREADSHEET_ID = "1JhIhbMrBU-V9_OGpWMiwrCFhzx0blInGP6-6G_TCyFw"
 creds = Credentials.from_service_account_file(CREDS_FILE, scopes=SCOPES)
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
+
+war_group_id = -1001996604986 
+war_topic_id = 8543
+
+try:
+    warn_sheet = gc.open_by_key(SPREADSHEET_ID).worksheet("Ammonizioni")
+except:
+    warn_sheet = gc.open_by_key(SPREADSHEET_ID).add_worksheet(title="Ammonizioni", rows="1000", cols="6")
+    warn_sheet.append_row(["user_id", "username", "admin_who_warned", "data_warn", "data_scadenza", "active"])
 
 utenti_in_attesa = {}
 dati_giocatori = {}
@@ -116,9 +126,36 @@ def salva_su_google_sheet(user_id):
             sheet.update(f"A{riga_da_aggiornare}:G{riga_da_aggiornare}", [valori])
         else:
             sheet.append_row(valori)
-        logger.info(f"Dati salvati su Google Sheet per user_id={user_id}")
     except Exception as e:
         logger.error(f"Errore salvataggio Google Sheet per user_id={user_id}: {e}")
+
+def pulisci_warn_scaduti():
+    try:
+        rows = warn_sheet.get_all_records()
+        oggi = datetime.now()
+        da_aggiornare = False
+        nuove_righe = [["user_id", "username", "admin_who_warned", "data_warn", "data_scadenza", "active"]]
+        
+        for row in rows:
+            scadenza_str = row.get("data_scadenza")
+            try:
+                scadenza = datetime.strptime(scadenza_str, "%Y-%m-%d")
+                if oggi <= scadenza:
+                    nuove_righe.append([
+                        row["user_id"], row["username"], row["admin_who_warned"],
+                        row["data_warn"], row["data_scadenza"], row.get("active", 1)
+                    ])
+                else:
+                    da_aggiornare = True
+            except:
+                continue
+
+        if da_aggiornare:
+            warn_sheet.clear()
+            warn_sheet.update(range_name="A1", values=nuove_righe)
+            
+    except Exception as e:
+        logger.error(f"Errore pulizia warn: {e}")
 
 async def sblocca_utente_con_retry(context, user_id, max_tentativi=3):
     for tentativo in range(1, max_tentativi + 1):
@@ -128,13 +165,10 @@ async def sblocca_utente_con_retry(context, user_id, max_tentativi=3):
                 user_id=user_id,
                 permissions=permessi_sbloccati
             )
-            logger.info(f"✅ Utente {user_id} sbloccato con successo (tentativo {tentativo})")
             return True
         except Exception as e:
-            logger.error(f"❌ Tentativo {tentativo} fallito per sbloccare {user_id}: {e}")
             if tentativo < max_tentativi:
                 await asyncio.sleep(1)
-    logger.error(f"❌ IMPOSSIBILE sbloccare utente {user_id} dopo {max_tentativi} tentativi")
     return False
 
 async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -147,9 +181,8 @@ async def nuovo_utente(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_id=user_id,
                 permissions=permessi_bloccati
             )
-            logger.info(f"Utente {user_id} bloccato nel gruppo reclutamento")
         except Exception as e:
-            logger.error(f"Errore restrict_chat_member per nuovo utente {user_id}: {e}")
+            logger.error(f"Errore restrict_chat_member: {e}")
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("clicca qua / click here", url=f"https://t.me/{context.bot.username}?start=join")]
         ])
@@ -212,12 +245,11 @@ async def invia_resoconto(user_id, context):
         try:
             await context.bot.delete_message(chat_id=group_id, message_id=old_msg_id)
         except Exception as e:
-            logger.warning(f"Impossibile eliminare messaggio reclutamento {old_msg_id}: {e}")
+            logger.warning(f"Impossibile eliminare messaggio: {e}")
 
     try:
         msg = await context.bot.send_message(chat_id=group_id, text=messaggio)
         dati["last_message_id"] = msg.message_id
-        logger.info(f"Resoconto inviato per user_id={user_id}")
         if not username:
             if paese == "Italia":
                 avviso = f"⚠️ {nome}, inserisci un username Telegram per facilitare il tuo reclutamento."
@@ -226,7 +258,7 @@ async def invia_resoconto(user_id, context):
             await context.bot.send_message(chat_id=group_id, text=avviso, reply_to_message_id=msg.message_id)
         salva_su_google_sheet(user_id)
     except Exception as e:
-        logger.error(f"Errore invio resoconto per user_id={user_id}: {e}")
+        logger.error(f"Errore invio resoconto: {e}")
 
 async def invia_resoconto_gestione(user_id, context):
     dati = dati_giocatori.get(user_id)
@@ -266,7 +298,7 @@ async def invia_resoconto_gestione(user_id, context):
         try:
             await context.bot.delete_message(chat_id=gestione_group_id, message_id=old_msg_id)
         except Exception as e:
-            logger.warning(f"Impossibile eliminare messaggio gestione {old_msg_id}: {e}")
+            logger.warning(f"Impossibile eliminare messaggio gestione: {e}")
     try:
         msg = await context.bot.send_message(
             chat_id=gestione_group_id,
@@ -274,10 +306,9 @@ async def invia_resoconto_gestione(user_id, context):
             message_thread_id=gestione_topic_id
         )
         dati["gestione_message_id"] = msg.message_id
-        logger.info(f"Resoconto gestione inviato per user_id={user_id}")
         salva_su_google_sheet(user_id)
     except Exception as e:
-        logger.error(f"Errore invio resoconto gestione per user_id={user_id}: {e}")
+        logger.error(f"Errore invio resoconto gestione: {e}")
 
 async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -321,14 +352,11 @@ async def ricevi_tag_privato(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             sbloccato = await sblocca_utente_con_retry(context, user_id, max_tentativi=3)
             
-            if sbloccato:
-                logger.info(f"✅ SUCCESSO: Utente {user_id} completamente sbloccato")
-            else:
-                logger.error(f"❌ FALLIMENTO: Impossibile sbloccare utente {user_id}")
+            if not sbloccato:
                 await update.message.reply_text("⚠️ Si è verificato un problema con lo sblocco. Contatta un admin.")
                 
         except Exception as e:
-            logger.error(f"Errore durante ricezione tag privato per user_id={user_id}: {e}")
+            logger.error(f"Errore tag privato: {e}")
     else:
         await update.message.reply_text("❗Per favore, scrivimi il tuo tag in game (es: #VPJJPQCPG).\n\nPlease write me your player tag (like #VPJJPQCPG). ")
 
@@ -402,7 +430,7 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
             salva_su_google_sheet(user_id)
             await update.message.reply_text(f"✅ Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
         except Exception as e:
-            logger.error(f"Errore updatetag per user_id={user_id}: {e}")
+            logger.error(f"Errore updatetag: {e}")
             await update.message.reply_text(f"⚠️ Tag salvato su database, ma errore nell'invio resoconti.")
         return
     for uid, dati in utenti_in_attesa.items():
@@ -424,7 +452,7 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 salva_su_google_sheet(user_id)
                 await update.message.reply_text(f"✅ Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
             except Exception as e:
-                logger.error(f"Errore updatetag per user_id={user_id}: {e}")
+                logger.error(f"Errore updatetag: {e}")
                 await update.message.reply_text(f"⚠️ Tag salvato su database, ma errore nell'invio resoconti.")
             return
     fake_user_id = -int(time.time())
@@ -443,7 +471,7 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         salva_su_google_sheet(fake_user_id)
         await update.message.reply_text(f"✅ Nuovo profilo creato per @{username_arg} con tag #{tag_arg} e resoconti rigenerati.")
     except Exception as e:
-        logger.error(f"Errore updatetag per nuovo utente: {e}")
+        logger.error(f"Errore updatetag nuovo utente: {e}")
         await update.message.reply_text(f"⚠️ Profilo salvato su database, ma errore nell'invio resoconti.")
 
 async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -458,7 +486,6 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Solo admin possono usare questo comando.")
             return
     except Exception as e:
-        logger.error(f"Errore verifica permessi info: {e}")
         await update.message.reply_text("Errore nel verificare i permessi.")
         return
     if not context.args or len(context.args) != 1:
@@ -507,6 +534,165 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔗 Profilo giocatore: {link}"""
     await update.message.reply_text(messaggio)
 
+async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    
+    # CONTROLLO GRUPPO E TOPIC
+    is_correct_topic = update.message.message_thread_id == war_topic_id
+    if chat.id != war_group_id or not is_correct_topic:
+        return 
+
+    try:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if member.status not in ['administrator', 'creator']:
+            return
+    except:
+        return
+
+    target_user = None
+    if update.message.reply_to_message:
+        target_user = update.message.reply_to_message.from_user
+    elif context.args:
+        username_input = context.args[0].replace("@", "")
+        for uid, dati in dati_giocatori.items():
+            if dati.get("username", "").lower() == username_input.lower():
+                target_user = type('obj', (object,), {'id': uid, 'full_name': dati.get("nome"), 'username': dati.get("username"), 'is_bot': False})
+                break
+    
+    if not target_user:
+        await update.message.reply_text("⚠️ Rispondi a un utente o scrivi /warn @username")
+        return
+
+    try:
+        target_member = await context.bot.get_chat_member(chat.id, target_user.id)
+        if target_member.status in ['administrator', 'creator'] or target_user.is_bot:
+            await update.message.reply_text("❌ Non puoi ammonire un admin o un bot.")
+            return
+    except:
+        pass
+
+    oggi = datetime.now()
+    scadenza = oggi + timedelta(days=60)
+    
+    pulisci_warn_scaduti()
+    
+    warn_sheet.append_row([
+        str(target_user.id),
+        target_user.username or target_user.full_name,
+        user.username or "Admin",
+        oggi.strftime("%Y-%m-%d"),
+        scadenza.strftime("%Y-%m-%d"),
+        1
+    ])
+    
+    rows = warn_sheet.get_all_records()
+    count = 0
+    for row in rows:
+        if str(row.get("user_id")) == str(target_user.id):
+            count += 1
+    
+    msg_text = f"🛡 <b>Utente Ammonito</b>\n\n👤 {target_user.full_name} (@{target_user.username})\n⚠️ Ammonizione: {count}° (scade tra 60gg)"
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Annulla", callback_data=f"unwarn_{target_user.id}")]
+    ])
+    
+    await update.message.reply_text(msg_text, reply_markup=keyboard, parse_mode="HTML")
+
+async def unwarn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user = query.from_user
+    # CONTROLLO GRUPPO E TOPIC (nel caso di pulsanti il messaggio esiste già, ma controlliamo per sicurezza)
+    is_correct_topic = query.message.message_thread_id == war_topic_id
+    if query.message.chat.id != war_group_id or not is_correct_topic:
+        return
+        
+    try:
+        member = await context.bot.get_chat_member(query.message.chat.id, user.id)
+        if member.status not in ['administrator', 'creator']:
+            await query.answer("Non sei admin!", show_alert=True)
+            return
+    except:
+        return
+
+    data = query.data
+    if data.startswith("unwarn_"):
+        target_id = data.split("_")[1]
+        
+        rows = warn_sheet.get_all_values()
+        riga_da_cancellare = None
+        for i in range(len(rows) - 1, 0, -1):
+            if str(rows[i][0]) == str(target_id):
+                riga_da_cancellare = i + 1
+                break
+        
+        if riga_da_cancellare:
+            warn_sheet.delete_rows(riga_da_cancellare)
+            await query.edit_message_text(f"✅ Ammonizione rimossa da {user.first_name}.")
+        else:
+            await query.edit_message_text("❌ Nessuna ammonizione attiva trovata per questo utente.")
+
+async def elenco_warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # CONTROLLO GRUPPO E TOPIC
+    is_correct_topic = update.message.message_thread_id == war_topic_id
+    if update.effective_chat.id != war_group_id or not is_correct_topic:
+        return
+
+    try:
+        member = await context.bot.get_chat_member(update.effective_chat.id, update.effective_user.id)
+        if member.status not in ['administrator', 'creator']:
+            return
+    except:
+        return
+
+    pulisci_warn_scaduti()
+    rows = warn_sheet.get_all_records()
+    
+    if not rows:
+        await update.message.reply_text("✅ Nessun utente ammonito al momento.")
+        return
+
+    oggi = datetime.now()
+    utenti_warn = {}
+
+    for row in rows:
+        uid = str(row.get("user_id"))
+        uname = row.get("username")
+        data_warn_str = row.get("data_warn")
+        
+        try:
+            data_warn = datetime.strptime(data_warn_str, "%Y-%m-%d")
+            
+            if uid not in utenti_warn:
+                utenti_warn[uid] = {"name": uname, "tot": 0, "recent": 0}
+            
+            utenti_warn[uid]["tot"] += 1
+            
+            delta = oggi - data_warn
+            if delta.days <= 30:
+                utenti_warn[uid]["recent"] += 1
+        except:
+            continue
+
+    msg = "🛡 <b>ELENCO AMMONITI</b> (Durata: 60gg)\n\n"
+    
+    msg += "📅 <b>Ultimi 30 giorni:</b>\n"
+    found_recent = False
+    for uid, dati in utenti_warn.items():
+        if dati["recent"] > 0:
+            msg += f"[{dati['recent']}] @{dati['name']}\n"
+            found_recent = True
+    if not found_recent: msg += "<i>Nessuno</i>\n"
+
+    msg += "\n🗂 <b>Totale attivi:</b>\n"
+    for uid, dati in utenti_warn.items():
+        msg += f"[{dati['tot']}] @{dati['name']}\n"
+
+    await update.message.reply_text(msg, parse_mode="HTML")
+
 async def armata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/P2UQP9CJ")
 
@@ -546,6 +732,9 @@ app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.C
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento_group_id)))
 app.add_handler(CommandHandler("info", info, filters.Chat(reclutamento_group_id)))
+app.add_handler(CommandHandler("warn", warn_command))
+app.add_handler(CommandHandler("elenco", elenco_warn))
+app.add_handler(CallbackQueryHandler(unwarn_callback, pattern="^unwarn_"))
 app.add_handler(CommandHandler("armata", armata_command))
 app.add_handler(CommandHandler("magnamm", magnamm_command))
 app.add_handler(CommandHandler("tori", tori_command))
