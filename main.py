@@ -33,7 +33,7 @@ creds = Credentials.from_service_account_file(CREDS_FILE, scopes=SCOPES)
 gc = gspread.authorize(creds)
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 
-war_group_id = -1001996604986 
+war_group_id = -1001996604986
 war_topic_id = 8543
 
 try:
@@ -538,35 +538,27 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     
-    # 1. CONTROLLO GRUPPO E TOPIC
     current_topic = update.message.message_thread_id
-    # Converte entrambi in stringa per sicurezza confronto
     is_correct_topic = (str(current_topic) == str(war_topic_id))
     
     if chat.id != war_group_id or not is_correct_topic:
         return 
 
-    # 2. CONTROLLO ADMIN CHE ESEGUE IL COMANDO
-    sender_is_creator = False
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         if member.status not in ['administrator', 'creator']:
             return
-        if member.status == 'creator':
-            sender_is_creator = True
     except:
         return
 
     target_user = None
     
-    # 3. IDENTIFICA IL BERSAGLIO
     if update.message.reply_to_message:
         target_user = update.message.reply_to_message.from_user
     elif context.args:
         username_input = context.args[0].replace("@", "")
         for uid, dati in dati_giocatori.items():
             if str(dati.get("username", "")).lower() == username_input.lower():
-                # Creiamo oggetto FAKE sicuro (con is_bot = False esplicito)
                 target_user = type('User', (object,), {
                     'id': uid, 
                     'full_name': dati.get("nome", "Utente"), 
@@ -576,41 +568,24 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     
     if not target_user:
-        await update.message.reply_text("⚠️ Rispondi a un utente o scrivi /warn @username (l'utente deve essere registrato nel bot).")
+        await update.message.reply_text("⚠️ Rispondi a un utente o scrivi /warn @username")
         return
     
-    # 4. CONTROLLO BERSAGLIO (Anti-Admin / Anti-Bot)
     try:
-        # Se l'oggetto è fake, non possiamo fare get_chat_member se l'utente è uscito
-        # Usiamo getattr per evitare crash se target_user è l'oggetto fake
         is_bot_check = getattr(target_user, 'is_bot', False)
-        
         if is_bot_check:
-             await update.message.reply_text("❌ Non puoi ammonire un bot.")
-             return
+             await update.message.reply_text("🤖 Nota: Stai ammonendo un bot.")
 
-        # Tentiamo di leggere lo status reale
-        target_member = await context.bot.get_chat_member(chat.id, target_user.id)
-        
-        # LOGICA: Se chi comanda è CREATOR, può ammonire chiunque tranne se stesso.
-        # Se chi comanda è ADMIN, non può ammonire altri ADMIN o CREATOR.
-        
         if str(target_user.id) == str(user.id):
-            await update.message.reply_text("❌ Non puoi ammonire te stesso.")
-            return
+            await update.message.reply_text("⚠️ Nota: Ti stai auto-ammonendo per test.")
 
-        if not sender_is_creator:
-            if target_member.status in ['administrator', 'creator']:
-                await update.message.reply_text(f"❌ Non puoi ammonire un {target_member.status}.")
-                return
+        target_member = await context.bot.get_chat_member(chat.id, target_user.id)
+        if target_member.status in ['administrator', 'creator']:
+             await update.message.reply_text(f"👮‍♂️ Nota: Stai ammonendo un {target_member.status}.")
 
-    except BadRequest:
-        # L'utente potrebbe non essere più nel gruppo. Procediamo comunque col warn nel DB.
-        pass
     except Exception as e:
-        logger.error(f"Errore verifica target warn: {e}")
+        pass
 
-    # 5. ESECUZIONE WARN
     oggi = datetime.now()
     scadenza = oggi + timedelta(days=60)
     
@@ -642,17 +617,20 @@ async def warn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_text = f"🛡 <b>Utente Ammonito</b>\n\n👤 {t_name} (@{t_user})\n⚠️ Ammonizione: {count}° (scade tra 60gg)"
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Annulla", callback_data=f"unwarn_{target_user.id}")]
+        [
+            InlineKeyboardButton("➖", callback_data=f"warn_sub_{target_user.id}"),
+            InlineKeyboardButton("➕", callback_data=f"warn_add_{target_user.id}")
+        ],
+        [InlineKeyboardButton("❌ Annulla", callback_data=f"warn_del_{target_user.id}")]
     ])
     
     await update.message.reply_text(msg_text, reply_markup=keyboard, parse_mode="HTML")
 
-async def unwarn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def gestione_warn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     user = query.from_user
-    # CONTROLLO GRUPPO E TOPIC
     is_correct_topic = (str(query.message.message_thread_id) == str(war_topic_id))
     if query.message.chat.id != war_group_id or not is_correct_topic:
         return
@@ -666,24 +644,98 @@ async def unwarn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     data = query.data
-    if data.startswith("unwarn_"):
-        target_id = data.split("_")[1]
+    
+    if data.startswith("warn_"):
+        azione = data.split("_")[1] # add, sub, del
+        target_id = data.split("_")[2]
         
-        rows = warn_sheet.get_all_values()
-        riga_da_cancellare = None
-        for i in range(len(rows) - 1, 0, -1):
-            if str(rows[i][0]) == str(target_id):
-                riga_da_cancellare = i + 1
-                break
+        # Recupero nome utente per aggiornare il messaggio
+        target_name = "Utente"
+        target_user_handle = "nessuno"
+        try:
+             # Proviamo a recuperare dati da memoria
+            if int(target_id) in dati_giocatori:
+                target_name = dati_giocatori[int(target_id)].get("nome", "Utente")
+                target_user_handle = dati_giocatori[int(target_id)].get("username", "")
+            else:
+                # Fallback API
+                chat_member = await context.bot.get_chat_member(query.message.chat.id, target_id)
+                target_name = chat_member.user.full_name
+                target_user_handle = chat_member.user.username or "nessuno"
+        except:
+            pass
+
+        pulisci_warn_scaduti()
+
+        if azione == "del":
+            # Rimuove l'ultimo warn e cancella il messaggio
+            rows = warn_sheet.get_all_values()
+            riga_da_cancellare = None
+            for i in range(len(rows) - 1, 0, -1):
+                if str(rows[i][0]) == str(target_id):
+                    riga_da_cancellare = i + 1
+                    break
+            
+            if riga_da_cancellare:
+                warn_sheet.delete_rows(riga_da_cancellare)
+                await query.message.delete()
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id, 
+                    text=f"✅ Ammonizione rimossa da {user.first_name}.",
+                    message_thread_id=query.message.message_thread_id
+                )
+            else:
+                await query.edit_message_text("❌ Nessuna ammonizione attiva da annullare.")
+            return
+
+        elif azione == "add":
+            oggi = datetime.now()
+            scadenza = oggi + timedelta(days=60)
+            warn_sheet.append_row([
+                str(target_id),
+                target_user_handle or target_name,
+                user.username or "Admin",
+                oggi.strftime("%Y-%m-%d"),
+                scadenza.strftime("%Y-%m-%d"),
+                1
+            ])
         
-        if riga_da_cancellare:
-            warn_sheet.delete_rows(riga_da_cancellare)
-            await query.edit_message_text(f"✅ Ammonizione rimossa da {user.first_name}.")
-        else:
-            await query.edit_message_text("❌ Nessuna ammonizione attiva trovata per questo utente.")
+        elif azione == "sub":
+            rows = warn_sheet.get_all_values()
+            riga_da_cancellare = None
+            for i in range(len(rows) - 1, 0, -1):
+                if str(rows[i][0]) == str(target_id):
+                    riga_da_cancellare = i + 1
+                    break
+            if riga_da_cancellare:
+                warn_sheet.delete_rows(riga_da_cancellare)
+            else:
+                await query.answer("Nessun warn da togliere!", show_alert=True)
+                return
+
+        # Ricalcola conteggio e aggiorna messaggio
+        rows = warn_sheet.get_all_records()
+        count = 0
+        for row in rows:
+            if str(row.get("user_id")) == str(target_id):
+                count += 1
+        
+        msg_text = f"🛡 <b>Utente Ammonito</b>\n\n👤 {target_name} (@{target_user_handle})\n⚠️ Ammonizione: {count}° (scade tra 60gg)"
+        
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("➖", callback_data=f"warn_sub_{target_id}"),
+                InlineKeyboardButton("➕", callback_data=f"warn_add_{target_id}")
+            ],
+            [InlineKeyboardButton("❌ Annulla", callback_data=f"warn_del_{target_id}")]
+        ])
+        
+        try:
+            await query.edit_message_text(text=msg_text, reply_markup=keyboard, parse_mode="HTML")
+        except BadRequest:
+            pass # Messaggio non modificato (stesso contenuto)
 
 async def elenco_warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # CONTROLLO GRUPPO E TOPIC
     current_topic = update.message.message_thread_id
     is_correct_topic = (str(current_topic) == str(war_topic_id))
     
@@ -783,7 +835,7 @@ app.add_handler(CommandHandler("updatetag", updatetag, filters.Chat(reclutamento
 app.add_handler(CommandHandler("info", info, filters.Chat(reclutamento_group_id)))
 app.add_handler(CommandHandler("warn", warn_command))
 app.add_handler(CommandHandler("elenco", elenco_warn))
-app.add_handler(CallbackQueryHandler(unwarn_callback, pattern="^unwarn_"))
+app.add_handler(CallbackQueryHandler(gestione_warn_callback, pattern="^warn_"))
 app.add_handler(CommandHandler("armata", armata_command))
 app.add_handler(CommandHandler("magnamm", magnamm_command))
 app.add_handler(CommandHandler("tori", tori_command))
