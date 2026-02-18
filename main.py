@@ -1025,7 +1025,7 @@ async def ammonizioni_mese_command(update: Update, context: ContextTypes.DEFAULT
 async def armata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/P2UQP9CJ")
 
-async def magnamm_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def approdo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/L08VGUJ9")
 
 async def tori_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1044,11 +1044,11 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     messaggio = (
         "🪖 *Family Armata Rozza*\n\n"
         "• [Armata Rozza](https://royaleapi.com/clan/P2UQP9CJ)\n"
-        "• [Ce Magnamm](https://royaleapi.com/clan/L08VGUJ9)\n"
         "• [I Tori Feroci](https://royaleapi.com/clan/YC89P002)\n"
         "• [Dog Rider](https://royaleapi.com/clan/RP889JU)\n"
         "• [BabyRozza](https://royaleapi.com/clan/QCQPJ90R)\n"
         "• [Mini Bombarolo](https://royaleapi.com/clan/PJG0R00)\n"
+        "• [Approdo Rozzo™️](https://royaleapi.com/clan/GURVCVCU)\n"
     )
     await update.message.reply_text(messaggio, parse_mode="Markdown")
 
@@ -1069,7 +1069,7 @@ app.add_handler(CommandHandler("resocontoammonizioni", resoconto_ammonizioni_com
 app.add_handler(CommandHandler("ammonizionimese", ammonizioni_mese_command))
 app.add_handler(CallbackQueryHandler(gestione_warn_callback, pattern="^warn_"))
 app.add_handler(CommandHandler("armata", armata_command))
-app.add_handler(CommandHandler("magnamm", magnamm_command))
+app.add_handler(CommandHandler("approdo", approdo_command))
 app.add_handler(CommandHandler("tori", tori_command))
 app.add_handler(CommandHandler("dog", dog_command))
 app.add_handler(CommandHandler("baby", baby_command))
