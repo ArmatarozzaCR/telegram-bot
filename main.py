@@ -1026,7 +1026,7 @@ async def armata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/P2UQP9CJ")
 
 async def approdo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("https://royaleapi.com/clan/L08VGUJ9")
+    await update.message.reply_text("https://royaleapi.com/clan/GURVCVCU")
 
 async def tori_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/YC89P002")
