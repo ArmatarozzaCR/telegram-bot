@@ -1037,7 +1037,7 @@ async def dog_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def baby_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/QCQPJ90R")
 
-async def minibomba_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def brigata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/PJG0R00")
 
 async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1047,7 +1047,7 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• [I Tori Feroci](https://royaleapi.com/clan/YC89P002)\n"
         "• [Dog Rider](https://royaleapi.com/clan/RP889JU)\n"
         "• [BabyRozza](https://royaleapi.com/clan/QCQPJ90R)\n"
-        "• [Mini Bombarolo](https://royaleapi.com/clan/PJG0R00)\n"
+        "• [BRIGATA ROZZA™️](https://royaleapi.com/clan/Q8G2QR2P)\n"
         "• [Approdo Rozzo™️](https://royaleapi.com/clan/GURVCVCU)\n"
     )
     await update.message.reply_text(messaggio, parse_mode="Markdown")
@@ -1073,7 +1073,7 @@ app.add_handler(CommandHandler("approdo", approdo_command))
 app.add_handler(CommandHandler("tori", tori_command))
 app.add_handler(CommandHandler("dog", dog_command))
 app.add_handler(CommandHandler("baby", baby_command))
-app.add_handler(CommandHandler("minibomba", minibomba_command))
+app.add_handler(CommandHandler("brigata", brigata_command))
 app.add_handler(CommandHandler("clan", clan_command))
 app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
 app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), monitora_username))
