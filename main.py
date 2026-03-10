@@ -1038,7 +1038,7 @@ async def baby_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://royaleapi.com/clan/QCQPJ90R")
 
 async def brigata_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("https://royaleapi.com/clan/PJG0R00")
+    await update.message.reply_text("https://royaleapi.com/clan/Q8G2QR2P")
 
 async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     messaggio = (
