@@ -36,6 +36,9 @@ sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 war_group_id = -1001996604986
 war_topic_id = 8543
 
+# ⬇️ Sostituisci con il tuo ID Telegram numerico (scrivi /start a @userinfobot per trovarlo)
+admin_log_chat_id = 8285233207
+
 try:
     warn_sheet = gc.open_by_key(SPREADSHEET_ID).worksheet("Ammonizioni")
 except:
@@ -379,6 +382,40 @@ async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT
             messaggio = f"❗ Ciao {mention}, unisciti prima al gruppo @reclutarozzi per iniziare il tuo reclutamento."
             await context.bot.send_message(chat_id=benvenuto_group_id, text=messaggio, parse_mode="Markdown", message_thread_id=benvenuto_topic_id)
 
+# ─── LOG INGRESSI/USCITE GRUPPO WAR ───────────────────────────────────────────
+async def log_war_member_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != war_group_id:
+        return
+    msg = update.message
+
+    # Ingressi
+    for member in msg.new_chat_members or []:
+        username = f"@{member.username}" if member.username else "nessun username"
+        testo = (
+            f"✅ <b>Entrato nel gruppo War:</b>\n"
+            f"{member.full_name} ({username})\n"
+            f"ID: <code>{member.id}</code>"
+        )
+        try:
+            await context.bot.send_message(chat_id=admin_log_chat_id, text=testo, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Errore log ingresso war: {e}")
+
+    # Uscite
+    if msg.left_chat_member:
+        member = msg.left_chat_member
+        username = f"@{member.username}" if member.username else "nessun username"
+        testo = (
+            f"❌ <b>Uscito dal gruppo War:</b>\n"
+            f"{member.full_name} ({username})\n"
+            f"ID: <code>{member.id}</code>"
+        )
+        try:
+            await context.bot.send_message(chat_id=admin_log_chat_id, text=testo, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Errore log uscita war: {e}")
+# ──────────────────────────────────────────────────────────────────────────────
+
 async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -506,12 +543,10 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Errore updatetag nuovo utente: {e}")
         await update.message.reply_text("⚠️ Profilo salvato su database, ma errore nell'invio resoconti.")
 
+# ─── /info DISPONIBILE IN TUTTI I GRUPPI ──────────────────────────────────────
 async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if chat.id != reclutamento_group_id:
-        await update.message.reply_text("Questo comando può essere usato solo nel gruppo reclutamento.")
-        return
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         if not (member.status in ['administrator', 'creator']):
@@ -582,6 +617,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔗 Profilo giocatore: {link}"""
     await update.message.reply_text(messaggio)
+# ──────────────────────────────────────────────────────────────────────────────
 
 async def risolvi_target_da_username(update: Update, context: ContextTypes.DEFAULT_TYPE, username_input: str):
     username_norm = (username_input or "").lstrip("@")
@@ -1056,6 +1092,14 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=True)
 
 app = ApplicationBuilder().token(TOKEN).build()
+
+# Handler ingressi/uscite gruppo War (log privato)
+app.add_handler(MessageHandler(
+    (filters.StatusUpdate.NEW_CHAT_MEMBERS | filters.StatusUpdate.LEFT_CHAT_MEMBER)
+    & filters.Chat(war_group_id),
+    log_war_member_change
+))
+
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(benvenuto_group_id), benvenuto_secondo_gruppo))
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
 app.add_handler(CommandHandler("start", start))
