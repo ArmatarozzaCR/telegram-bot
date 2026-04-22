@@ -4,6 +4,7 @@ from telegram.ext import (
     MessageHandler,
     CommandHandler,
     CallbackQueryHandler,
+    ChatMemberHandler,
     ContextTypes,
     filters,
 )
@@ -126,7 +127,7 @@ def salva_su_google_sheet(user_id):
             data_ingresso_presente
         ]
         if riga_da_aggiornare:
-            sheet.update(f"A{riga_da_aggiornare}:G{riga_da_aggiornare}", [valori])
+            sheet.update(values=[valori], range_name=f"A{riga_da_aggiornare}:G{riga_da_aggiornare}")
         else:
             sheet.append_row(valori)
     except Exception as e:
@@ -384,36 +385,74 @@ async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT
 
 # ─── LOG INGRESSI/USCITE GRUPPO WAR ───────────────────────────────────────────
 async def log_war_member_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.id != war_group_id:
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    logger.info(f"[WAR LOG] Evento ricevuto da chat {chat_id}")
+    if chat_id != war_group_id:
+        logger.info(f"[WAR LOG] Chat ID non corrisponde: {chat_id} != {war_group_id}")
         return
-    msg = update.message
 
-    # Ingressi
-    for member in msg.new_chat_members or []:
-        username = f"@{member.username}" if member.username else "nessun username"
+    member = None
+    entrato = False
+
+    if update.chat_member:
+        cm = update.chat_member
+        old_status = cm.old_chat_member.status
+        new_status = cm.new_chat_member.status
+        member = cm.new_chat_member.user
+        logger.info(f"[WAR LOG] chat_member: {member.full_name} {old_status} -> {new_status}")
+        if new_status in ("member", "administrator") and old_status not in ("member", "administrator", "creator"):
+            entrato = True
+        elif new_status in ("left", "kicked") and old_status in ("member", "administrator", "creator"):
+            entrato = False
+        else:
+            return
+
+    elif update.message:
+        msg = update.message
+        logger.info(f"[WAR LOG] message: new={msg.new_chat_members}, left={msg.left_chat_member}")
+        if msg.new_chat_members:
+            for m in msg.new_chat_members:
+                username = f"@{m.username}" if m.username else "nessun username"
+                testo = (
+                    f"✅ <b>Entrato nel gruppo War:</b>\n"
+                    f"{m.full_name} ({username})\n"
+                    f"ID: <code>{m.id}</code>"
+                )
+                try:
+                    await context.bot.send_message(chat_id=admin_log_chat_id, text=testo, parse_mode="HTML")
+                    logger.info(f"[WAR LOG] Ingresso inviato per {m.full_name}")
+                except Exception as e:
+                    logger.error(f"Errore log ingresso war: {e}")
+            return
+        elif msg.left_chat_member:
+            member = msg.left_chat_member
+            entrato = False
+        else:
+            return
+    else:
+        return
+
+    if member is None:
+        return
+
+    username = f"@{member.username}" if member.username else "nessun username"
+    if entrato:
         testo = (
             f"✅ <b>Entrato nel gruppo War:</b>\n"
             f"{member.full_name} ({username})\n"
             f"ID: <code>{member.id}</code>"
         )
-        try:
-            await context.bot.send_message(chat_id=admin_log_chat_id, text=testo, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Errore log ingresso war: {e}")
-
-    # Uscite
-    if msg.left_chat_member:
-        member = msg.left_chat_member
-        username = f"@{member.username}" if member.username else "nessun username"
+    else:
         testo = (
             f"❌ <b>Uscito dal gruppo War:</b>\n"
             f"{member.full_name} ({username})\n"
             f"ID: <code>{member.id}</code>"
         )
-        try:
-            await context.bot.send_message(chat_id=admin_log_chat_id, text=testo, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Errore log uscita war: {e}")
+    try:
+        await context.bot.send_message(chat_id=admin_log_chat_id, text=testo, parse_mode="HTML")
+        logger.info(f"[WAR LOG] Messaggio {'ingresso' if entrato else 'uscita'} inviato per {member.full_name}")
+    except Exception as e:
+        logger.error(f"Errore log war: {e}")
 # ──────────────────────────────────────────────────────────────────────────────
 
 async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -543,8 +582,8 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Errore updatetag nuovo utente: {e}")
         await update.message.reply_text("⚠️ Profilo salvato su database, ma errore nell'invio resoconti.")
 
-# ─── /info DISPONIBILE IN TUTTI I GRUPPI ──────────────────────────────────────
-async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ─── /infos DISPONIBILE IN TUTTI I GRUPPI ─────────────────────────────────────
+async def infos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     try:
@@ -555,33 +594,59 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         await update.message.reply_text("Errore nel verificare i permessi.")
         return
+
     target_user = None
     username_arg = None
+
     if update.message.reply_to_message:
+        # Caso 1: risposta diretta a un messaggio
         target_user = update.message.reply_to_message.from_user
     else:
-        if not context.args or len(context.args) != 1:
-            await update.message.reply_text("Uso corretto: /info @username")
+        # Caso 2: prova prima con context.args
+        if context.args and len(context.args) >= 1:
+            username_arg = context.args[0].lstrip("@")
+
+        # Caso 3: fallback su entity del messaggio (mention e text_mention)
+        # Gestisce i supergroup con topics dove context.args può essere vuoto
+        if not username_arg and not target_user:
+            for entity in (update.message.entities or []):
+                if entity.type == "text_mention" and entity.user:
+                    target_user = entity.user
+                    break
+                elif entity.type == "mention":
+                    mention_text = update.message.text[entity.offset + 1:entity.offset + entity.length]
+                    username_arg = mention_text
+                    break
+
+        # Caso 4: usa risolvi_target_da_username che gestisce tutti gli edge case
+        if not target_user and username_arg:
+            target_user = await risolvi_target_da_username(update, context, username_arg)
+
+        if not target_user and not username_arg:
+            await update.message.reply_text("Uso corretto: /infos @username oppure rispondi a un messaggio.")
             return
-        username_arg = context.args[0]
-        if username_arg.startswith("@"):
-            username_arg = username_arg[1:]
+
+    # Ricerca nei dati
     user_id = getattr(target_user, 'id', None)
     dati = None
+
     if user_id is not None and user_id in dati_giocatori:
         dati = dati_giocatori[user_id]
+
     if not dati and username_arg:
         for uid, d in dati_giocatori.items():
             if d.get("username", "").lower() == username_arg.lower():
                 user_id = uid
                 dati = d
                 break
+
     if not dati and username_arg:
         for uid, d in utenti_in_attesa.items():
             if d.get("username", "").lower() == username_arg.lower():
                 user_id = uid
                 dati = d
                 break
+
     if not dati and username_arg:
         try:
             chat_target = await context.bot.get_chat(f"@{username_arg}")
@@ -590,10 +655,12 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 dati = dati_giocatori[user_id]
         except Exception:
             pass
+
     if not dati:
         username_display = username_arg or getattr(target_user, 'username', None) or "utente"
         await update.message.reply_text(f"Utente @{username_display} non trovato nei dati.")
         return
+
     nome = dati.get("nome", "Utente")
     username = dati.get("username")
     username_display = f"@{username}" if username else "nessun username"
@@ -1094,6 +1161,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TOKEN).build()
 
 # Handler ingressi/uscite gruppo War (log privato)
+app.add_handler(ChatMemberHandler(log_war_member_change, chat_member_types=ChatMemberHandler.ANY_CHAT_MEMBER))
 app.add_handler(MessageHandler(
     (filters.StatusUpdate.NEW_CHAT_MEMBERS | filters.StatusUpdate.LEFT_CHAT_MEMBER)
     & filters.Chat(war_group_id),
@@ -1104,7 +1172,7 @@ app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.C
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("updatetag", updatetag))
-app.add_handler(CommandHandler("info", info))
+app.add_handler(CommandHandler("infos", infos))
 app.add_handler(CommandHandler("warn", warn_command))
 app.add_handler(CommandHandler("elenco", elenco_warn))
 app.add_handler(CommandHandler("ammonisci", ammonisci_command))
@@ -1124,4 +1192,4 @@ app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEX
 app.add_error_handler(error_handler)
 
 logger.info("✅ Bot in esecuzione con polling...")
-app.run_polling()
+app.run_polling(allowed_updates=["message", "chat_member", "callback_query"])
