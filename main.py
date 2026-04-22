@@ -1155,6 +1155,64 @@ async def clan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(messaggio, parse_mode="Markdown")
 
+import random
+
+async def bacgay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    frasi = [
+        "@BACWasTaken ti manca così tanto il cervello che potresti galleggiare sull’acqua.",
+        "@BACWasTaken saresti perfetto come testimonial dei preservativi: faresti impennare le vendite.",
+        "@BACWasTaken sei utile quanto il pastello bianco.",
+        "@BACWasTaken stamattina ti sei specchiato in una pozzanghera di fango?",
+        "@BACWasTaken avevi l’ombrello quando distribuivano la bellezza?",
+        "@BACWasTaken spiegarti qualcosa è come insegnare il calcolo a un lemure.",
+        "@BACWasTaken se corressi quanto parli, avresti già un oro olimpico.",
+        "@BACWasTaken sei tagliente come una biglia.",
+        "@BACWasTaken c’è della merda sui vestiti... ah no, sei solo tu.",
+        "@BACWasTaken sei utile come un preservativo bucato.",
+        "@BACWasTaken sembri avere più crateri della luna.",
+        "@BACWasTaken sai la differenza tra te e le uova? Le uova vengono deposte.",
+        "@BACWasTaken perché fai il difficile se sei difficile da volere?",
+        "@BACWasTaken ti chiamerei fighetta, ma ti manca profondità.",
+        "@BACWasTaken spero che tu incontri qualcuno bello, intelligente e simpatico... l’opposto tuo.",
+        "@BACWasTaken dovresti portarti dietro una pianta per rimpiazzare l’ossigeno che sprechi.",
+        "@BACWasTaken smettila di usare la testa solo per tenere fermi i denti.",
+        "@BACWasTaken sei la prova vivente che anche i brutti scopano.",
+        "@BACWasTaken sembri uno che non saprebbe fare lo spelling di DNA.",
+        "@BACWasTaken alcuni bevono dalla fontana della conoscenza, tu ci hai fatto i gargarismi.",
+        "@BACWasTaken usi la testa solo per tagliarti i capelli?",
+        "@BACWasTaken se mangiassi spazzatura, sarebbe cannibalismo.",
+        "@BACWasTaken tutti hanno bisogno d’amore, tu invece paghi per averlo.",
+        "@BACWasTaken sembri un castello di sabbia già calpestato.",
+        "@BACWasTaken vedo che oggi hai ritagliato del tempo per umiliarti in pubblico.",
+        "@BACWasTaken sembri uno gnomo da giardino mal riuscito.",
+        "@BACWasTaken sei uno strumento completo, ma nemmeno utile.",
+        "@BACWasTaken come sono parenti i tuoi genitori?",
+        "@BACWasTaken se fossi la luce alla fine del tunnel, tornerei indietro.",
+        "@BACWasTaken se ti lancio un bastone, te ne vai?",
+        "@BACWasTaken che contraccezione usi? La faccia?",
+        "@BACWasTaken ti darei un +1, così forse trovi un amico.",
+        "@BACWasTaken scommetto che i tuoi genitori cambiano discorso quando chiedono di te.",
+        "@BACWasTaken direi che sei stupido come una roccia, ma almeno una roccia tiene aperta una porta.",
+        "@BACWasTaken fai una lunga passeggiata su un pontile corto.",
+        "@BACWasTaken sembri creato premendo 'casuale' nella schermata personaggio.",
+        "@BACWasTaken se l’ignoranza è beatitudine, devi essere felicissimo.",
+        "@BACWasTaken sei così indietro che pensi di essere avanti.",
+        "@BACWasTaken quando piovevano cervelli avevi l’ombrello.",
+        "@BACWasTaken potresti nascondere le uova di Pasqua e dimenticare dove.",
+        "@BACWasTaken se avessi un altro cervello, ti sentiresti solo.",
+        "@BACWasTaken continua a roteare gli occhi, magari trovi un cervello dietro.",
+        "@BACWasTaken sembri uno che mangia i tasti del telecomando.",
+        "@BACWasTaken hai il carisma di una multa sul parabrezza.",
+        "@BACWasTaken sei il motivo per cui esiste il tasto ignora.",
+        "@BACWasTaken hai il talento raro di sbagliare anche copiando.",
+        "@BACWasTaken sei così inutile che in una rissa faresti da arbitro.",
+        "@BACWasTaken hai meno spessore di un foglio bagnato.",
+        "@BACWasTaken sei il classico che cade e dà la colpa al pavimento.",
+        "@BACWasTaken se fossi una carta Clash Royale, costeresti 10 elisir e non faresti nulla."
+    ]
+
+    await update.message.reply_text(random.choice(frasi))
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=True)
 
@@ -1190,6 +1248,7 @@ app.add_handler(CommandHandler("clan", clan_command))
 app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND), ricevi_tag_privato))
 app.add_handler(MessageHandler(filters.Chat(reclutamento_group_id) & filters.TEXT & (~filters.COMMAND), monitora_username))
 app.add_error_handler(error_handler)
+app.add_handler(CommandHandler("bacgay", bacgay_command))
 
 logger.info("✅ Bot in esecuzione con polling...")
 app.run_polling(allowed_updates=["message", "chat_member", "callback_query"])
