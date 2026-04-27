@@ -582,8 +582,8 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Errore updatetag nuovo utente: {e}")
         await update.message.reply_text("⚠️ Profilo salvato su database, ma errore nell'invio resoconti.")
 
-# ─── /infos DISPONIBILE IN TUTTI I GRUPPI ─────────────────────────────────────
-async def infos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ─── /cerca DISPONIBILE IN TUTTI I GRUPPI ─────────────────────────────────────
+async def cerca(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     try:
@@ -623,7 +623,7 @@ async def infos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target_user = await risolvi_target_da_username(update, context, username_arg)
 
         if not target_user and not username_arg:
-            await update.message.reply_text("Uso corretto: /infos @username oppure rispondi a un messaggio.")
+            await update.message.reply_text("Uso corretto: /cerca @username oppure rispondi a un messaggio.")
             return
 
     # Ricerca nei dati
@@ -1230,7 +1230,7 @@ app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.C
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & filters.Chat(reclutamento_group_id), nuovo_utente))
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("updatetag", updatetag))
-app.add_handler(CommandHandler("infos", infos))
+app.add_handler(CommandHandler("cerca", cerca))
 app.add_handler(CommandHandler("warn", warn_command))
 app.add_handler(CommandHandler("elenco", elenco_warn))
 app.add_handler(CommandHandler("ammonisci", ammonisci_command))
