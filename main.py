@@ -37,7 +37,6 @@ sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 war_group_id = -1001996604986
 war_topic_id = 8543
 
-# ⬇️ Sostituisci con il tuo ID Telegram numerico (scrivi /start a @userinfobot per trovarlo)
 admin_log_chat_id = 8285233207
 
 try:
@@ -383,7 +382,6 @@ async def benvenuto_secondo_gruppo(update: Update, context: ContextTypes.DEFAULT
             messaggio = f"❗ Ciao {mention}, unisciti prima al gruppo @reclutarozzi per iniziare il tuo reclutamento."
             await context.bot.send_message(chat_id=benvenuto_group_id, text=messaggio, parse_mode="Markdown", message_thread_id=benvenuto_topic_id)
 
-# ─── LOG INGRESSI/USCITE GRUPPO WAR ───────────────────────────────────────────
 async def log_war_member_change(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id if update.effective_chat else None
     logger.info(f"[WAR LOG] Evento ricevuto da chat {chat_id}")
@@ -453,7 +451,6 @@ async def log_war_member_change(update: Update, context: ContextTypes.DEFAULT_TY
         logger.info(f"[WAR LOG] Messaggio {'ingresso' if entrato else 'uscita'} inviato per {member.full_name}")
     except Exception as e:
         logger.error(f"Errore log war: {e}")
-# ──────────────────────────────────────────────────────────────────────────────
 
 async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -469,8 +466,10 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except BadRequest:
         await update.message.reply_text("Errore nel verificare i permessi.")
         return
+
     target_user = None
     username_arg = None
+
     if update.message.reply_to_message:
         target_user = update.message.reply_to_message.from_user
         if len(context.args) != 1:
@@ -481,13 +480,13 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(context.args) != 2:
             await update.message.reply_text("Uso corretto: /updatetag @username #TAG")
             return
-        username_arg = context.args[0]
+        username_arg = context.args[0].lstrip("@")
         tag_arg = context.args[1].upper()
-        if username_arg.startswith("@"):
-            username_arg = username_arg[1:]
+
         if not username_arg:
             await update.message.reply_text("⚠️ Username non valido.")
             return
+
         for uid, dati in dati_giocatori.items():
             if dati.get("username", "").lower() == username_arg.lower():
                 target_user = type('User', (object,), {
@@ -497,6 +496,7 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'is_bot': False
                 })
                 break
+
         if not target_user:
             for uid, dati in utenti_in_attesa.items():
                 if dati.get("username", "").lower() == username_arg.lower():
@@ -507,6 +507,7 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         'is_bot': False
                     })
                     break
+
         if not target_user:
             try:
                 chat_target = await context.bot.get_chat(f"@{username_arg}")
@@ -514,75 +515,86 @@ async def updatetag(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     target_user = chat_target
             except Exception:
                 target_user = None
+
     if not re.match(r"^#?[A-Z0-9]+$", tag_arg):
         await update.message.reply_text("Tag non valido. Deve iniziare con # e contenere solo lettere/numeri.")
         return
     tag_arg = tag_arg.lstrip("#")
+
     user_id = getattr(target_user, 'id', None)
+    nome = getattr(target_user, 'full_name', None) or getattr(target_user, 'first_name', None) or username_arg or "Utente"
+    username_finale = getattr(target_user, 'username', None) or username_arg or ""
+
     if user_id is not None:
-        if user_id not in dati_giocatori and username_arg:
+        if user_id not in dati_giocatori:
             dati_giocatori[user_id] = {
-                "nome": getattr(target_user, 'full_name', username_arg),
-                "username": getattr(target_user, 'username', username_arg) or username_arg,
+                "nome": nome,
+                "username": username_finale,
                 "tag": tag_arg,
                 "user_lang": None,
                 "last_message_id": None,
                 "gestione_message_id": None,
                 "nel_benvenuto": False
             }
-        dati_giocatori[user_id]["tag"] = tag_arg
+            azione_msg = f"✅ Nuovo profilo creato per @{username_finale} con tag #{tag_arg}."
+        else:
+            dati_giocatori[user_id]["tag"] = tag_arg
+            if username_finale:
+                dati_giocatori[user_id]["username"] = username_finale
+            azione_msg = f"✅ Tag aggiornato per @{username_finale} a #{tag_arg}."
+
+        if user_id in utenti_in_attesa:
+            del utenti_in_attesa[user_id]
+
         try:
             await invia_resoconto(user_id, context)
             await invia_resoconto_gestione(user_id, context)
             salva_su_google_sheet(user_id)
-            username_display = getattr(target_user, 'username', username_arg) or username_arg or "utente"
-            await update.message.reply_text(f"✅ Tag aggiornato per @{username_display} a #{tag_arg} e resoconti rigenerati.")
+            await update.message.reply_text(azione_msg + " Resoconti rigenerati.")
         except Exception as e:
             logger.error(f"Errore updatetag: {e}")
-            await update.message.reply_text("⚠️ Tag salvato su database, ma errore nell'invio resoconti.")
-        return
-    for uid, dati in utenti_in_attesa.items():
-        if username_arg and dati.get("username", "").lower() == username_arg.lower():
-            user_id = uid
-            dati_giocatori[user_id] = {
-                "nome": dati.get("nome", username_arg),
-                "username": dati.get("username", username_arg),
+            await update.message.reply_text("⚠️ Profilo salvato, ma errore nell'invio resoconti.")
+
+    else:
+        profilo_esistente_uid = None
+        for uid, dati in dati_giocatori.items():
+            if str(dati.get("username", "")).lower() == (username_arg or "").lower():
+                profilo_esistente_uid = uid
+                break
+
+        if profilo_esistente_uid:
+            dati_giocatori[profilo_esistente_uid]["tag"] = tag_arg
+            try:
+                await invia_resoconto(profilo_esistente_uid, context)
+                await invia_resoconto_gestione(profilo_esistente_uid, context)
+                salva_su_google_sheet(profilo_esistente_uid)
+                await update.message.reply_text(f"✅ Tag aggiornato per @{username_arg} a #{tag_arg}. Resoconti rigenerati.")
+            except Exception as e:
+                logger.error(f"Errore updatetag profilo manuale: {e}")
+                await update.message.reply_text("⚠️ Profilo salvato, ma errore nell'invio resoconti.")
+        else:
+            fake_user_id = abs(hash(username_arg.lower())) * -1
+            dati_giocatori[fake_user_id] = {
+                "nome": username_arg,
+                "username": username_arg,
                 "tag": tag_arg,
-                "user_lang": "sconosciuta",
+                "user_lang": None,
                 "last_message_id": None,
                 "gestione_message_id": None,
                 "nel_benvenuto": False
             }
-            del utenti_in_attesa[user_id]
             try:
-                await invia_resoconto(user_id, context)
-                await invia_resoconto_gestione(user_id, context)
-                salva_su_google_sheet(user_id)
-                await update.message.reply_text(f"✅ Tag aggiornato per @{username_arg} a #{tag_arg} e resoconti rigenerati.")
+                await invia_resoconto(fake_user_id, context)
+                await invia_resoconto_gestione(fake_user_id, context)
+                salva_su_google_sheet(fake_user_id)
+                await update.message.reply_text(
+                    f"✅ Nuovo profilo manuale creato per @{username_arg} con tag #{tag_arg}.\n"
+                    f"⚠️ Utente non trovato su Telegram: il profilo è associato allo username, non all'ID."
+                )
             except Exception as e:
-                logger.error(f"Errore updatetag: {e}")
-                await update.message.reply_text("⚠️ Tag salvato su database, ma errore nell'invio resoconti.")
-            return
-    fake_user_id = -int(time.time())
-    dati_giocatori[fake_user_id] = {
-        "nome": username_arg or "utente",
-        "username": username_arg or "utente",
-        "tag": tag_arg,
-        "user_lang": None,
-        "last_message_id": None,
-        "gestione_message_id": None,
-        "nel_benvenuto": False
-    }
-    try:
-        await invia_resoconto(fake_user_id, context)
-        await invia_resoconto_gestione(fake_user_id, context)
-        salva_su_google_sheet(fake_user_id)
-        await update.message.reply_text(f"✅ Nuovo profilo creato per @{username_arg} con tag #{tag_arg} e resoconti rigenerati.")
-    except Exception as e:
-        logger.error(f"Errore updatetag nuovo utente: {e}")
-        await update.message.reply_text("⚠️ Profilo salvato su database, ma errore nell'invio resoconti.")
+                logger.error(f"Errore updatetag nuovo profilo manuale: {e}")
+                await update.message.reply_text("⚠️ Profilo salvato, ma errore nell'invio resoconti.")
 
-# ─── /cerca DISPONIBILE IN TUTTI I GRUPPI ─────────────────────────────────────
 async def cerca(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -599,15 +611,11 @@ async def cerca(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username_arg = None
 
     if update.message.reply_to_message:
-        # Caso 1: risposta diretta a un messaggio
         target_user = update.message.reply_to_message.from_user
     else:
-        # Caso 2: prova prima con context.args
         if context.args and len(context.args) >= 1:
             username_arg = context.args[0].lstrip("@")
 
-        # Caso 3: fallback su entity del messaggio (mention e text_mention)
-        # Gestisce i supergroup con topics dove context.args può essere vuoto
         if not username_arg and not target_user:
             for entity in (update.message.entities or []):
                 if entity.type == "text_mention" and entity.user:
@@ -618,7 +626,6 @@ async def cerca(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     username_arg = mention_text
                     break
 
-        # Caso 4: usa risolvi_target_da_username che gestisce tutti gli edge case
         if not target_user and username_arg:
             target_user = await risolvi_target_da_username(update, context, username_arg)
 
@@ -626,7 +633,6 @@ async def cerca(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Uso corretto: /cerca @username oppure rispondi a un messaggio.")
             return
 
-    # Ricerca nei dati
     user_id = getattr(target_user, 'id', None)
     dati = None
 
@@ -684,7 +690,6 @@ async def cerca(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔗 Profilo giocatore: {link}"""
     await update.message.reply_text(messaggio)
-# ──────────────────────────────────────────────────────────────────────────────
 
 async def risolvi_target_da_username(update: Update, context: ContextTypes.DEFAULT_TYPE, username_input: str):
     username_norm = (username_input or "").lstrip("@")
@@ -1159,29 +1164,29 @@ import random
 
 async def bacgay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     frasi = [
-        "@BACWasTaken ti manca così tanto il cervello che potresti galleggiare sull’acqua.",
+        "@BACWasTaken ti manca così tanto il cervello che potresti galleggiare sull'acqua.",
         "@BACWasTaken saresti perfetto come testimonial dei preservativi: faresti impennare le vendite.",
         "@BACWasTaken sei utile quanto il pastello bianco.",
         "@BACWasTaken stamattina ti sei specchiato in una pozzanghera di fango?",
-        "@BACWasTaken avevi l’ombrello quando distribuivano la bellezza?",
+        "@BACWasTaken avevi l'ombrello quando distribuivano la bellezza?",
         "@BACWasTaken spiegarti qualcosa è come insegnare il calcolo a un lemure.",
         "@BACWasTaken se corressi quanto parli, avresti già un oro olimpico.",
         "@BACWasTaken sei tagliente come una biglia.",
-        "@BACWasTaken c’è della merda sui vestiti... ah no, sei solo tu.",
+        "@BACWasTaken c'è della merda sui vestiti... ah no, sei solo tu.",
         "@BACWasTaken sei utile come un preservativo bucato.",
         "@BACWasTaken sembri avere più crateri della luna.",
         "@BACWasTaken sai la differenza tra te e le uova? Le uova vengono deposte.",
         "@BACWasTaken perché fai il difficile se sei difficile da volere?",
         "@BACWasTaken ti chiamerei fighetta, ma ti manca profondità.",
-        "@BACWasTaken spero che tu incontri qualcuno bello, intelligente e simpatico... l’opposto tuo.",
-        "@BACWasTaken dovresti portarti dietro una pianta per rimpiazzare l’ossigeno che sprechi.",
+        "@BACWasTaken spero che tu incontri qualcuno bello, intelligente e simpatico... l'opposto tuo.",
+        "@BACWasTaken dovresti portarti dietro una pianta per rimpiazzare l'ossigeno che sprechi.",
         "@BACWasTaken smettila di usare la testa solo per tenere fermi i denti.",
         "@BACWasTaken sei la prova vivente che anche i brutti scopano.",
         "@BACWasTaken sembri uno che non saprebbe fare lo spelling di DNA.",
         "@BACWasTaken alcuni bevono dalla fontana della conoscenza, tu ci hai fatto i gargarismi.",
         "@BACWasTaken usi la testa solo per tagliarti i capelli?",
         "@BACWasTaken se mangiassi spazzatura, sarebbe cannibalismo.",
-        "@BACWasTaken tutti hanno bisogno d’amore, tu invece paghi per averlo.",
+        "@BACWasTaken tutti hanno bisogno d'amore, tu invece paghi per averlo.",
         "@BACWasTaken sembri un castello di sabbia già calpestato.",
         "@BACWasTaken vedo che oggi hai ritagliato del tempo per umiliarti in pubblico.",
         "@BACWasTaken sembri uno gnomo da giardino mal riuscito.",
@@ -1195,9 +1200,9 @@ async def bacgay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "@BACWasTaken direi che sei stupido come una roccia, ma almeno una roccia tiene aperta una porta.",
         "@BACWasTaken fai una lunga passeggiata su un pontile corto.",
         "@BACWasTaken sembri creato premendo 'casuale' nella schermata personaggio.",
-        "@BACWasTaken se l’ignoranza è beatitudine, devi essere felicissimo.",
+        "@BACWasTaken se l'ignoranza è beatitudine, devi essere felicissimo.",
         "@BACWasTaken sei così indietro che pensi di essere avanti.",
-        "@BACWasTaken quando piovevano cervelli avevi l’ombrello.",
+        "@BACWasTaken quando piovevano cervelli avevi l'ombrello.",
         "@BACWasTaken potresti nascondere le uova di Pasqua e dimenticare dove.",
         "@BACWasTaken se avessi un altro cervello, ti sentiresti solo.",
         "@BACWasTaken continua a roteare gli occhi, magari trovi un cervello dietro.",
@@ -1210,7 +1215,6 @@ async def bacgay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "@BACWasTaken sei il classico che cade e dà la colpa al pavimento.",
         "@BACWasTaken se fossi una carta Clash Royale, costeresti 10 elisir e non faresti nulla."
     ]
-
     await update.message.reply_text(random.choice(frasi))
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -1218,7 +1222,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 app = ApplicationBuilder().token(TOKEN).build()
 
-# Handler ingressi/uscite gruppo War (log privato)
 app.add_handler(ChatMemberHandler(log_war_member_change, chat_member_types=ChatMemberHandler.ANY_CHAT_MEMBER))
 app.add_handler(MessageHandler(
     (filters.StatusUpdate.NEW_CHAT_MEMBERS | filters.StatusUpdate.LEFT_CHAT_MEMBER)
